@@ -50,6 +50,15 @@ pub enum Event {
         actual: String,
         timestamp: String,
     },
+    OpExecuted {
+        run_id: String,
+        batch_id: String,
+        op_id: String,
+        op_type: String,
+        payload: serde_json::Value,
+        status: String,
+        timestamp: String,
+    },
     CheckpointStarted {
         run_id: String,
         checkpoint_id: String,
@@ -88,6 +97,18 @@ pub enum Event {
 impl Event {
     pub fn now() -> String {
         Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+    }
+
+    pub fn op_executed(run_id: &str, batch_id: &str, op_id: &str, op_type: &str, payload: serde_json::Value, status: &str) -> Self {
+        Event::OpExecuted {
+            run_id: run_id.to_string(),
+            batch_id: batch_id.to_string(),
+            op_id: op_id.to_string(),
+            op_type: op_type.to_string(),
+            payload,
+            status: status.to_string(),
+            timestamp: Self::now(),
+        }
     }
 
     pub fn run_started(run_id: &str, hypothesis_id: &str) -> Self {

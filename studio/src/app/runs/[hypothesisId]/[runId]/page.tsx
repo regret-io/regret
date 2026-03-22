@@ -271,6 +271,7 @@ function EventBadge({ type }: { type: string }) {
     RunStopped: "bg-amber-500/10 text-amber-400 border-amber-800",
     BatchStarted: "bg-zinc-800 text-zinc-400 border-zinc-700",
     BatchCompleted: "bg-zinc-800 text-zinc-400 border-zinc-700",
+    OpExecuted: "bg-zinc-800/50 text-zinc-500 border-zinc-700",
     BatchFailed: "bg-red-500/10 text-red-400 border-red-800",
     CheckpointPassed: "bg-emerald-500/10 text-emerald-400 border-emerald-800",
     CheckpointFailed: "bg-red-500/10 text-red-400 border-red-800",
@@ -286,13 +287,23 @@ function EventBadge({ type }: { type: string }) {
 function eventDetails(ev: EventItem): string {
   const parts: string[] = [];
   if (ev.batch_id) parts.push(`batch=${ev.batch_id}`);
+  if (ev.op_id) parts.push(`${ev.op_id}`);
+  if (ev.op_type) parts.push(`${ev.op_type}`);
+  if (ev.payload && typeof ev.payload === "object") {
+    const p = ev.payload as Record<string, unknown>;
+    if (p.key) parts.push(`key=${p.key}`);
+    if (p.value) parts.push(`value=${p.value}`);
+    if (p.start) parts.push(`start=${p.start}`);
+    if (p.end) parts.push(`end=${p.end}`);
+    if (p.prefix) parts.push(`prefix=${p.prefix}`);
+  }
+  if (ev.status && ev.type === "OpExecuted") parts.push(`→ ${ev.status}`);
   if (ev.duration_ms !== undefined) parts.push(`${ev.duration_ms}ms`);
   if (ev.size !== undefined) parts.push(`ops=${ev.size}`);
   if (ev.keys_checked !== undefined) parts.push(`keys=${ev.keys_checked}`);
   if (ev.failures !== undefined) parts.push(`failures=${ev.failures}`);
   if (ev.pass_rate !== undefined) parts.push(`pass_rate=${ev.pass_rate}`);
   if (ev.stop_reason) parts.push(`reason=${ev.stop_reason}`);
-  if (ev.op_id) parts.push(`op=${ev.op_id}`);
   if (ev.expected) parts.push(`expected=${ev.expected}`);
   if (ev.actual) parts.push(`actual=${ev.actual}`);
   if (ev.error) parts.push(`error=${ev.error}`);

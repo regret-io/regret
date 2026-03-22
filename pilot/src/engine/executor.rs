@@ -206,7 +206,6 @@ impl Executor {
                 let start = Instant::now();
 
                 let failures = if let Some(client) = &self.adapter_client {
-                    // Real adapter — execute and verify
                     let results = match client.execute_batch(&batch_id, batch).await {
                         Ok(r) => r,
                         Err(e) => {
@@ -214,15 +213,30 @@ impl Executor {
                             return Ok(StopReason::Error(e.to_string()));
                         }
                     };
+                    // Log each op result
+                    for (op, res) in batch.iter().zip(results.iter()) {
+                        self.emit_event(Event::op_executed(
+                            &self.run_id, &batch_id, &op.id,
+                            &op_type_str(&op.kind),
+                            op_payload(&op.kind),
+                            &res.status,
+                        ));
+                    }
                     let response = AdapterBatchResponse { batch_id: batch_id.clone(), results };
                     self.reference.process_response(batch, &response, &self.tolerance)
                 } else {
-                    // No adapter — apply writes to reference only, skip verification
                     let mock = self.build_mock_results(batch);
+                    for (op, res) in batch.iter().zip(mock.iter()) {
+                        self.emit_event(Event::op_executed(
+                            &self.run_id, &batch_id, &op.id,
+                            &op_type_str(&op.kind),
+                            op_payload(&op.kind),
+                            &res.status,
+                        ));
+                    }
                     let response = AdapterBatchResponse { batch_id: batch_id.clone(), results: mock };
-                    // Only apply writes, don't verify reads (no real adapter to compare against)
                     let _ = self.reference.process_response(batch, &response, &self.tolerance);
-                    vec![] // no failures in reference-only mode
+                    vec![]
                 };
 
                 let duration_ms = start.elapsed().as_millis() as u64;
@@ -402,6 +416,37 @@ impl Executor {
         if let Err(e) = self.files.append_event(&self.hypothesis_id, &event.to_json()) {
             error!(error = %e, "failed to write event");
         }
+    }
+}
+
+fn op_type_str(kind: &OpKind) -> String {
+    match kind {
+        OpKind::Put { .. } => "put", OpKind::Get { .. } => "get", OpKind::Delete { .. } => "delete",
+        OpKind::DeleteRange { .. } => "delete_range", OpKind::List { .. } => "list",
+        OpKind::RangeScan { .. } => "range_scan", OpKind::Cas { .. } => "cas",
+        OpKind::EphemeralPut { .. } => "ephemeral_put", OpKind::IndexedPut { .. } => "indexed_put",
+        OpKind::IndexedGet { .. } => "indexed_get", OpKind::IndexedList { .. } => "indexed_list",
+        OpKind::IndexedRangeScan { .. } => "indexed_range_scan",
+        OpKind::SequencePut { .. } => "sequence_put", OpKind::Fence => "fence",
+    }.to_string()
+}
+
+fn op_payload(kind: &OpKind) -> serde_json::Value {
+    match kind {
+        OpKind::Put { key, value } => serde_json::json!({"key": key, "value": value}),
+        OpKind::Get { key } => serde_json::json!({"key": key}),
+        OpKind::Delete { key } => serde_json::json!({"key": key}),
+        OpKind::DeleteRange { start, end } => serde_json::json!({"start": start, "end": end}),
+        OpKind::List { prefix } => serde_json::json!({"prefix": prefix}),
+        OpKind::RangeScan { start, end } => serde_json::json!({"start": start, "end": end}),
+        OpKind::Cas { key, expected_version_id, new_value } => serde_json::json!({"key": key, "expected_version_id": expected_version_id, "new_value": new_value}),
+        OpKind::EphemeralPut { key, value } => serde_json::json!({"key": key, "value": value}),
+        OpKind::IndexedPut { key, value, index_name, index_key } => serde_json::json!({"key": key, "value": value, "index_name": index_name, "index_key": index_key}),
+        OpKind::IndexedGet { index_name, index_key } => serde_json::json!({"index_name": index_name, "index_key": index_key}),
+        OpKind::IndexedList { index_name, start, end } => serde_json::json!({"index_name": index_name, "start": start, "end": end}),
+        OpKind::IndexedRangeScan { index_name, start, end } => serde_json::json!({"index_name": index_name, "start": start, "end": end}),
+        OpKind::SequencePut { prefix, value, delta } => serde_json::json!({"prefix": prefix, "value": value, "delta": delta}),
+        OpKind::Fence => serde_json::json!({}),
     }
 }
 
