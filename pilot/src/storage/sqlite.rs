@@ -34,6 +34,7 @@ pub struct GeneratorRecord {
     pub name: String,
     pub description: String,
     pub workload: String, // JSON object
+    pub rate: i64,        // target ops/sec, 0 = unlimited
     pub builtin: i32,
     pub created_at: String,
 }
@@ -214,15 +215,17 @@ impl SqliteStore {
         name: &str,
         description: &str,
         workload_json: &str,
+        rate: u32,
         builtin: bool,
     ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO generators (name, description, workload, builtin) VALUES (?, ?, ?, ?)
-             ON CONFLICT(name) DO UPDATE SET description = excluded.description, workload = excluded.workload",
+            "INSERT INTO generators (name, description, workload, rate, builtin) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(name) DO UPDATE SET description = excluded.description, workload = excluded.workload, rate = excluded.rate",
         )
         .bind(name)
         .bind(description)
         .bind(workload_json)
+        .bind(rate as i32)
         .bind(builtin as i32)
         .execute(&self.pool)
         .await?;

@@ -91,7 +91,6 @@ impl std::fmt::Display for StopReason {
 #[async_trait::async_trait]
 pub trait AdapterClient: Send + Sync {
     /// Stream ops to adapter via bidirectional gRPC, return all results.
-    /// Fences in the ops list act as sync points.
     async fn execute_ops(&self, ops: &[Operation]) -> Result<Vec<AdapterOpResult>>;
 
     /// Read all records under a key prefix (checkpoint).

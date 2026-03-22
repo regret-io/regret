@@ -13,6 +13,9 @@ pub struct CreateGeneratorRequest {
     #[serde(default)]
     pub description: String,
     pub workload: std::collections::HashMap<String, f64>,
+    /// Target ops/sec rate. 0 = unlimited.
+    #[serde(default)]
+    pub rate: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -20,6 +23,7 @@ pub struct GeneratorResponse {
     pub name: String,
     pub description: String,
     pub workload: serde_json::Value,
+    pub rate: i64,
     pub builtin: bool,
     pub created_at: String,
 }
@@ -57,7 +61,7 @@ pub async fn create(
 
     state
         .sqlite
-        .upsert_generator(&req.name, &req.description, &workload_json, false)
+        .upsert_generator(&req.name, &req.description, &workload_json, req.rate, false)
         .await?;
 
     let record = state
@@ -92,6 +96,7 @@ fn to_response(g: &crate::storage::sqlite::GeneratorRecord) -> GeneratorResponse
         name: g.name.clone(),
         description: g.description.clone(),
         workload: serde_json::from_str(&g.workload).unwrap_or_default(),
+        rate: g.rate,
         builtin: g.builtin != 0,
         created_at: g.created_at.clone(),
     }

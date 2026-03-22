@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
     for gen_info in generator::generators::list_generators() {
         let workload = generator::generators::get_generator(gen_info.name);
         let workload_json = serde_json::to_string(&workload)?;
-        sqlite.upsert_generator(gen_info.name, gen_info.description, &workload_json, true).await?;
+        sqlite.upsert_generator(gen_info.name, gen_info.description, &workload_json, gen_info.rate, true).await?;
     }
     info!("built-in generators seeded");
 

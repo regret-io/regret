@@ -19,26 +19,32 @@ pub fn list_generators() -> Vec<GeneratorInfo> {
         GeneratorInfo {
             name: "basic-kv",
             description: "Basic key-value operations: put, get, delete, delete_range, list, range_scan",
+            rate: 1000,
         },
         GeneratorInfo {
             name: "kv-cas",
             description: "Basic KV + compare-and-swap (versioned conditional writes)",
+            rate: 800,
         },
         GeneratorInfo {
             name: "kv-ephemeral",
             description: "Basic KV + ephemeral records (auto-deleted on session expiry)",
+            rate: 1000,
         },
         GeneratorInfo {
             name: "kv-secondary-index",
             description: "Basic KV + secondary index operations (indexed put/get/list/range_scan)",
+            rate: 500,
         },
         GeneratorInfo {
             name: "kv-sequence",
             description: "Sequence key puts with server-assigned monotonic suffixes + reads",
+            rate: 500,
         },
         GeneratorInfo {
             name: "kv-full",
             description: "All Oxia operations combined: basic KV + CAS + ephemeral + indexes + sequences",
+            rate: 300,
         },
     ]
 }
@@ -46,6 +52,8 @@ pub fn list_generators() -> Vec<GeneratorInfo> {
 pub struct GeneratorInfo {
     pub name: &'static str,
     pub description: &'static str,
+    /// Target ops/sec rate. 0 = unlimited.
+    pub rate: u32,
 }
 
 // ── Generator definitions ──

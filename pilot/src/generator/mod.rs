@@ -43,6 +43,10 @@ pub struct GenerateParams {
     /// Secondary index configuration (for kv-secondary-index profile).
     #[serde(default)]
     pub index: IndexConfig,
+
+    /// Target ops/sec rate. 0 = unlimited. Can be overridden per run.
+    #[serde(default)]
+    pub rate: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +130,7 @@ impl Default for GenerateParams {
             seed: default_seed(),
             value: ValueConfig::default(),
             index: IndexConfig::default(),
+            rate: 0,
         }
     }
 }
