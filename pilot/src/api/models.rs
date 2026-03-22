@@ -53,6 +53,8 @@ pub struct StartRunRequest {
     /// Adapter name to use for this run (must be pre-registered via POST /api/adapters).
     /// If omitted, runs reference model only (no real system verification).
     pub adapter: Option<String>,
+    /// Override adapter gRPC address (for local dev when K8s service names aren't resolvable).
+    pub adapter_addr: Option<String>,
     #[serde(default)]
     pub execution: ExecutionConfigRequest,
 }

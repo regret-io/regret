@@ -62,6 +62,7 @@ impl HypothesisManager {
         &mut self,
         config: ExecutionConfig,
         adapter: Option<AdapterRecord>,
+        adapter_addr_override: Option<String>,
     ) -> Result<(String, Arc<RwLock<ProgressInfo>>)> {
         if self.run_state.is_some() {
             anyhow::bail!("hypothesis is already running");
@@ -97,8 +98,10 @@ impl HypothesisManager {
         let adapter_client: Option<Box<dyn AdapterClient>> = if let Some(adapter_def) = &adapter {
             adapter_name_for_teardown = Some(adapter_def.name.clone());
 
-            // Derive gRPC address: {adapter-name}.{namespace}.svc:9090
-            let addr = if let Some(scheduler) = &self.shared.scheduler {
+            // Use override address if provided, otherwise derive from K8s or name
+            let addr = if let Some(override_addr) = &adapter_addr_override {
+                override_addr.clone()
+            } else if let Some(scheduler) = &self.shared.scheduler {
                 // In K8s — deploy the adapter pod, then connect by service name
                 info!(
                     hypothesis_id = %self.hypothesis_id,

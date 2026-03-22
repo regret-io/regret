@@ -239,7 +239,7 @@ pub async fn start_run(
         return Err(ApiError::Conflict("hypothesis is already running".to_string()));
     }
 
-    let (run_id, _progress) = mgr.start_run(config, adapter).await?;
+    let (run_id, _progress) = mgr.start_run(config, adapter, req.adapter_addr).await?;
 
     Ok((
         StatusCode::ACCEPTED,
