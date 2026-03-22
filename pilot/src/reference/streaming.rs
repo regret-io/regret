@@ -1,30 +1,23 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    AdapterBatchResponse, CheckpointFailure, OpExpect, OpKind, OpStatus, Operation, RecordState,
-    ReferenceModel, ResponseFailure, Tolerance,
+    AdapterBatchResponse, CheckpointFailure, OpKind, Operation, RecordState, ReferenceModel,
+    ResponseFailure, Tolerance,
 };
 
 #[derive(Debug, Clone)]
 struct Message {
     offset: u64,
-    key: Option<String>,
     value: String,
 }
 
 /// Basic streaming reference model.
-///
-/// Tracks produced messages per topic-partition and consumed offsets.
-/// Verification checks:
-/// - Layer 1: produce acknowledged, consume returns expected messages
-/// - Layer 2: no data loss, correct ordering, no duplicates
 pub struct BasicStreamingReference {
     /// topic -> partition -> messages
     produced: HashMap<String, HashMap<u32, Vec<Message>>>,
-    /// topic -> partition -> next expected offset
+    /// topic -> partition -> consumed offset
     consumed: HashMap<String, HashMap<u32, u64>>,
     touched_keys: HashSet<String>,
-    pending_expects: HashMap<String, OpExpect>,
 }
 
 impl BasicStreamingReference {
@@ -33,28 +26,48 @@ impl BasicStreamingReference {
             produced: HashMap::new(),
             consumed: HashMap::new(),
             touched_keys: HashSet::new(),
-            pending_expects: HashMap::new(),
         }
     }
 
     fn topic_partition_key(topic: &str, partition: u32) -> String {
         format!("{topic}:{partition}")
     }
+
+    fn parse_topic_partition(key: &str) -> Option<(String, u32)> {
+        let parts: Vec<&str> = key.rsplitn(2, ':').collect();
+        if parts.len() == 2 {
+            let partition: u32 = parts[0].parse().ok()?;
+            Some((parts[1].to_string(), partition))
+        } else {
+            None
+        }
+    }
 }
 
 impl ReferenceModel for BasicStreamingReference {
-    fn apply(&mut self, ops: &[Operation]) {
-        for op in ops {
+    fn process_response(
+        &mut self,
+        ops: &[Operation],
+        response: &AdapterBatchResponse,
+        _tolerance: &Option<Tolerance>,
+    ) -> Vec<ResponseFailure> {
+        let mut failures = Vec::new();
+
+        let op_map: HashMap<&str, &Operation> = ops
+            .iter()
+            .filter(|op| !op.id.is_empty())
+            .map(|op| (op.id.as_str(), op))
+            .collect();
+
+        for result in &response.results {
+            let Some(op) = op_map.get(result.op_id.as_str()) else {
+                continue;
+            };
+
             match &op.kind {
-                // For streaming, we reuse KV-style ops with semantic mapping:
-                // put → produce (key=topic:partition, value=message)
-                // get → consume (key=topic:partition)
-                OpKind::Put { key, value } => {
-                    // Parse key as "topic:partition"
-                    let parts: Vec<&str> = key.rsplitn(2, ':').collect();
-                    if parts.len() == 2 {
-                        let partition: u32 = parts[0].parse().unwrap_or(0);
-                        let topic = parts[1].to_string();
+                OpKind::Put { key, value } if result.status == "ok" => {
+                    // Produce succeeded — record message
+                    if let Some((topic, partition)) = Self::parse_topic_partition(key) {
                         let messages = self
                             .produced
                             .entry(topic)
@@ -64,22 +77,15 @@ impl ReferenceModel for BasicStreamingReference {
                         let offset = messages.len() as u64;
                         messages.push(Message {
                             offset,
-                            key: None,
                             value: value.clone(),
                         });
                         self.touched_keys.insert(key.clone());
                     }
-                    self.pending_expects
-                        .insert(op.id.clone(), OpExpect::Write { status: OpStatus::Ok });
                 }
-
                 OpKind::Get { key } => {
-                    // Consume next message from topic:partition
-                    let parts: Vec<&str> = key.rsplitn(2, ':').collect();
-                    if parts.len() == 2 {
-                        let partition: u32 = parts[0].parse().unwrap_or(0);
-                        let topic = parts[1].to_string();
-                        let offset = self
+                    // Consume — verify against produced messages
+                    if let Some((topic, partition)) = Self::parse_topic_partition(key) {
+                        let consumed_offset = self
                             .consumed
                             .entry(topic.clone())
                             .or_default()
@@ -92,94 +98,20 @@ impl ReferenceModel for BasicStreamingReference {
                             .and_then(|t| t.get(&partition));
 
                         if let Some(msgs) = messages {
-                            if (*offset as usize) < msgs.len() {
-                                let msg = &msgs[*offset as usize];
-                                self.pending_expects.insert(
-                                    op.id.clone(),
-                                    OpExpect::Get {
-                                        value: Some(msg.value.clone()),
-                                        version_id: msg.offset,
-                                    },
-                                );
-                                *offset += 1;
-                            } else {
-                                self.pending_expects.insert(
-                                    op.id.clone(),
-                                    OpExpect::Get {
-                                        value: None,
-                                        version_id: 0,
-                                    },
-                                );
+                            if (*consumed_offset as usize) < msgs.len() {
+                                let expected_msg = &msgs[*consumed_offset as usize];
+                                if result.value.as_deref() != Some(&expected_msg.value) {
+                                    failures.push(ResponseFailure {
+                                        op_id: op.id.clone(),
+                                        op: "get".to_string(),
+                                        expected: format!("value={:?}", expected_msg.value),
+                                        actual: format!("value={:?}", result.value),
+                                    });
+                                }
+                                *consumed_offset += 1;
                             }
-                        } else {
-                            self.pending_expects.insert(
-                                op.id.clone(),
-                                OpExpect::Get {
-                                    value: None,
-                                    version_id: 0,
-                                },
-                            );
                         }
                         self.touched_keys.insert(key.clone());
-                    }
-                }
-
-                OpKind::Fence => {}
-
-                // Other ops are no-ops for streaming
-                _ => {
-                    self.pending_expects
-                        .insert(op.id.clone(), OpExpect::Write { status: OpStatus::Ok });
-                }
-            }
-        }
-    }
-
-    fn take_expects(&mut self) -> HashMap<String, OpExpect> {
-        std::mem::take(&mut self.pending_expects)
-    }
-
-    fn verify_response(
-        &self,
-        expects: &HashMap<String, OpExpect>,
-        actual: &AdapterBatchResponse,
-        _tolerance: &Option<Tolerance>,
-    ) -> Vec<ResponseFailure> {
-        let mut failures = Vec::new();
-
-        for result in &actual.results {
-            let Some(expected) = expects.get(&result.op_id) else {
-                continue;
-            };
-
-            match expected {
-                OpExpect::Write { status } => {
-                    if result.status != status.as_str() {
-                        failures.push(ResponseFailure {
-                            op_id: result.op_id.clone(),
-                            op: result.op.clone(),
-                            expected: format!("status={}", status.as_str()),
-                            actual: format!("status={}", result.status),
-                        });
-                    }
-                }
-                OpExpect::Get { value, .. } => {
-                    if value.is_none() {
-                        if result.status != "not_found" {
-                            failures.push(ResponseFailure {
-                                op_id: result.op_id.clone(),
-                                op: result.op.clone(),
-                                expected: "no message available".to_string(),
-                                actual: format!("status={}", result.status),
-                            });
-                        }
-                    } else if result.value.as_ref() != value.as_ref() {
-                        failures.push(ResponseFailure {
-                            op_id: result.op_id.clone(),
-                            op: result.op.clone(),
-                            expected: format!("value={:?}", value),
-                            actual: format!("value={:?}", result.value),
-                        });
                     }
                 }
                 _ => {}
@@ -196,19 +128,14 @@ impl ReferenceModel for BasicStreamingReference {
     ) -> Vec<CheckpointFailure> {
         let mut failures = Vec::new();
 
-        // For streaming, checkpoint verifies no data loss:
-        // each topic:partition should have all produced messages consumable
         for (topic, partitions) in &self.produced {
             for (partition, messages) in partitions {
                 let key = Self::topic_partition_key(topic, *partition);
                 let actual = actual_state.get(&key).cloned().flatten();
-
-                // Expected: the total count of produced messages
                 let expected_count = messages.len() as u64;
 
                 match actual {
                     Some(record) => {
-                        // version_id represents the message count in the adapter
                         if record.version_id != expected_count {
                             failures.push(CheckpointFailure {
                                 key: key.clone(),
@@ -253,12 +180,9 @@ impl ReferenceModel for BasicStreamingReference {
     fn snapshot(&self, keys: &HashSet<String>) -> HashMap<String, Option<RecordState>> {
         keys.iter()
             .map(|k| {
-                let parts: Vec<&str> = k.rsplitn(2, ':').collect();
-                let state = if parts.len() == 2 {
-                    let partition: u32 = parts[0].parse().unwrap_or(0);
-                    let topic = parts[1];
+                let state = Self::parse_topic_partition(k).and_then(|(topic, partition)| {
                     self.produced
-                        .get(topic)
+                        .get(&topic)
                         .and_then(|t| t.get(&partition))
                         .map(|msgs| RecordState {
                             value: None,
@@ -268,9 +192,7 @@ impl ReferenceModel for BasicStreamingReference {
                                 msgs.len().to_string(),
                             )]),
                         })
-                } else {
-                    None
-                };
+                });
                 (k.clone(), state)
             })
             .collect()
@@ -280,6 +202,5 @@ impl ReferenceModel for BasicStreamingReference {
         self.produced.clear();
         self.consumed.clear();
         self.touched_keys.clear();
-        self.pending_expects.clear();
     }
 }

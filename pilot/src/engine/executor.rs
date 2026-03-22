@@ -238,16 +238,10 @@ impl Executor {
                 }
             }
 
-            // Emit BatchStarted
             self.emit_event(Event::batch_started(&self.run_id, &batch_id, offset, batch_size));
-
             let batch_start = Instant::now();
 
-            // Apply to reference model
-            self.reference.apply(&ops);
-            let expects = self.reference.take_expects();
-
-            // Send full batch to adapter including fences (adapter SDK handles fence semantics)
+            // 1. Send batch to adapter
             let adapter_response = if let Some(client) = &self.adapter_client {
                 match self.execute_with_retry(client.as_ref(), &batch_id, &ops).await {
                     Ok(resp) => Some(resp),
@@ -262,16 +256,19 @@ impl Executor {
                     }
                 }
             } else {
-                // No adapter — create a mock response (for local testing)
+                // No adapter — apply writes directly to reference for local testing
+                self.reference.process_response(&ops, &self.build_mock_response(&ops), &self.tolerance);
                 None
             };
 
             let duration_ms = batch_start.elapsed().as_millis() as u64;
             self.emit_event(Event::batch_completed(&self.run_id, &batch_id, duration_ms));
 
-            // Layer 1: Response verification
+            // 2. Reference processes response:
+            //    - Successful writes → update reference state
+            //    - Reads → verify against reference state → failures
             if let Some(response) = &adapter_response {
-                let failures = self.reference.verify_response(&expects, response, &self.tolerance);
+                let failures = self.reference.process_response(&ops, response, &self.tolerance);
                 if !failures.is_empty() {
                     let mut progress = self.progress.write().await;
                     progress.failed_response_ops += failures.len();
@@ -408,6 +405,44 @@ impl Executor {
                     delay_ms = (delay_ms * 2).min(self.config.max_retry_delay_ms);
                 }
             }
+        }
+    }
+
+    /// Build a mock response for local testing (no adapter).
+    /// All writes succeed, reads return empty (reference model self-validates).
+    fn build_mock_response(&self, ops: &[Operation]) -> AdapterBatchResponse {
+        let results = ops
+            .iter()
+            .filter(|op| !op.id.is_empty())
+            .map(|op| {
+                let (status, op_type) = match &op.kind {
+                    OpKind::Put { .. } => ("ok", "put"),
+                    OpKind::Delete { .. } => ("ok", "delete"),
+                    OpKind::DeleteRange { .. } => ("ok", "delete_range"),
+                    OpKind::Cas { .. } => ("ok", "cas"),
+                    OpKind::Get { .. } => ("not_found", "get"),
+                    OpKind::RangeScan { .. } => ("ok", "range_scan"),
+                    OpKind::List { .. } => ("ok", "list"),
+                    OpKind::Fence => return None,
+                };
+                Some(AdapterOpResult {
+                    op_id: op.id.clone(),
+                    op: op_type.to_string(),
+                    status: status.to_string(),
+                    value: None,
+                    version_id: None,
+                    records: if op_type == "range_scan" { Some(vec![]) } else { None },
+                    keys: if op_type == "list" { Some(vec![]) } else { None },
+                    deleted_count: None,
+                    message: None,
+                })
+            })
+            .flatten()
+            .collect();
+
+        AdapterBatchResponse {
+            batch_id: String::new(),
+            results,
         }
     }
 

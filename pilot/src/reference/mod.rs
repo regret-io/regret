@@ -14,15 +14,6 @@ pub struct RecordState {
     pub metadata: HashMap<String, String>,
 }
 
-/// What the reference model expects for a given operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OpExpect {
-    Write { status: OpStatus },
-    Get { value: Option<String>, version_id: u64 },
-    Range { records: Vec<RangeRecord> },
-    List { keys: Vec<String> },
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OpStatus {
     Ok,
@@ -38,15 +29,6 @@ impl OpStatus {
             OpStatus::VersionMismatch => "version_mismatch",
         }
     }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "ok" => Some(OpStatus::Ok),
-            "not_found" => Some(OpStatus::NotFound),
-            "version_mismatch" => Some(OpStatus::VersionMismatch),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +38,7 @@ pub struct RangeRecord {
     pub version_id: u64,
 }
 
-/// A failure detected during Layer 1 response verification.
+/// A failure detected during verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseFailure {
     pub op_id: String,
@@ -65,7 +47,7 @@ pub struct ResponseFailure {
     pub actual: String,
 }
 
-/// A failure detected during Layer 2 checkpoint verification.
+/// A failure detected during checkpoint verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointFailure {
     pub key: String,
@@ -73,7 +55,7 @@ pub struct CheckpointFailure {
     pub actual: Option<RecordState>,
 }
 
-/// Tolerance configuration for verification.
+/// Tolerance configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tolerance {
     #[serde(default = "default_ordering")]
@@ -84,12 +66,8 @@ pub struct Tolerance {
     pub structural: Vec<StructuralTolerance>,
 }
 
-fn default_ordering() -> String {
-    "strict".to_string()
-}
-fn default_duplicates() -> String {
-    "deny".to_string()
-}
+fn default_ordering() -> String { "strict".to_string() }
+fn default_duplicates() -> String { "deny".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StructuralTolerance {
@@ -97,7 +75,7 @@ pub struct StructuralTolerance {
     pub ignore: bool,
 }
 
-/// Adapter batch response for verification.
+/// Adapter batch response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdapterBatchResponse {
     pub batch_id: String,
@@ -123,7 +101,7 @@ pub struct AdapterOpResult {
     pub message: Option<String>,
 }
 
-/// Parsed operation for the reference model.
+/// Parsed operation.
 #[derive(Debug, Clone)]
 pub struct Operation {
     pub id: String,
@@ -143,18 +121,28 @@ pub enum OpKind {
 }
 
 /// The core reference model trait.
+///
+/// The reference model owns the "truth state" — it processes adapter responses
+/// to maintain what the state SHOULD be after all successful operations.
+///
+/// Flow:
+///   1. Executor sends ops to adapter → gets response
+///   2. Reference.process_response(ops, response) →
+///      - Writes that succeeded → update reference state
+///      - Reads that succeeded → verify value against reference state → return failures
+///   3. Checkpoint: reference.snapshot() vs adapter.readState() → return failures
 pub trait ReferenceModel: Send + Sync {
-    /// Apply operations to the reference model.
-    fn apply(&mut self, ops: &[Operation]);
-
-    /// Take pending expectations.
-    fn take_expects(&mut self) -> HashMap<String, OpExpect>;
-
-    /// Layer 1: verify adapter response against expectations.
-    fn verify_response(
-        &self,
-        expects: &HashMap<String, OpExpect>,
-        actual: &AdapterBatchResponse,
+    /// Process adapter response for a batch of operations.
+    ///
+    /// For each operation result:
+    /// - Write (put/delete/cas) with status=ok → update internal state
+    /// - Read (get/range_scan/list) → verify returned value against internal state
+    ///
+    /// Returns list of read verification failures (empty = all reads correct).
+    fn process_response(
+        &mut self,
+        ops: &[Operation],
+        response: &AdapterBatchResponse,
         tolerance: &Option<Tolerance>,
     ) -> Vec<ResponseFailure>;
 

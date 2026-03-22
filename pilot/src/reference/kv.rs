@@ -1,15 +1,14 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::{
-    AdapterBatchResponse, CheckpointFailure, OpExpect, OpKind, OpStatus, Operation, RangeRecord,
-    RecordState, ReferenceModel, ResponseFailure, StructuralTolerance, Tolerance,
+    AdapterBatchResponse, AdapterOpResult, CheckpointFailure, OpKind, Operation, RangeRecord,
+    RecordState, ReferenceModel, ResponseFailure, Tolerance,
 };
 
 #[derive(Debug, Clone)]
 struct KVRecord {
     value: Option<String>,
     version_id: u64,
-    deleted: bool,
 }
 
 impl Default for KVRecord {
@@ -17,7 +16,6 @@ impl Default for KVRecord {
         Self {
             value: None,
             version_id: 0,
-            deleted: false,
         }
     }
 }
@@ -25,7 +23,6 @@ impl Default for KVRecord {
 pub struct BasicKvReference {
     store: BTreeMap<String, KVRecord>,
     touched_keys: HashSet<String>,
-    pending_expects: HashMap<String, OpExpect>,
 }
 
 impl BasicKvReference {
@@ -33,203 +30,106 @@ impl BasicKvReference {
         Self {
             store: BTreeMap::new(),
             touched_keys: HashSet::new(),
-            pending_expects: HashMap::new(),
         }
     }
 
-    /// Check if a field should be ignored per tolerance config.
     fn should_ignore_field(field: &str, tolerance: &Option<Tolerance>) -> bool {
         if let Some(t) = tolerance {
-            for s in &t.structural {
-                if s.field == field && s.ignore {
-                    return true;
-                }
-            }
+            t.structural.iter().any(|s| s.field == field && s.ignore)
+        } else {
+            false
         }
-        false
     }
-}
 
-impl ReferenceModel for BasicKvReference {
-    fn apply(&mut self, ops: &[Operation]) {
-        for op in ops {
-            match &op.kind {
-                OpKind::Put { key, value } => {
-                    let rec = self.store.entry(key.clone()).or_default();
-                    rec.value = Some(value.clone());
-                    rec.version_id += 1;
-                    rec.deleted = false;
-                    self.touched_keys.insert(key.clone());
-                    self.pending_expects
-                        .insert(op.id.clone(), OpExpect::Write { status: OpStatus::Ok });
+    /// Apply a successful write to the reference state.
+    fn apply_write(&mut self, op: &Operation) {
+        match &op.kind {
+            OpKind::Put { key, value } => {
+                let rec = self.store.entry(key.clone()).or_default();
+                rec.value = Some(value.clone());
+                rec.version_id += 1;
+                self.touched_keys.insert(key.clone());
+            }
+            OpKind::Delete { key } => {
+                if let Some(rec) = self.store.get_mut(key) {
+                    rec.value = None;
                 }
-
-                OpKind::Delete { key } => {
-                    let existed = self.store.get(key).is_some_and(|r| !r.deleted && r.value.is_some());
-                    // Mark as deleted instead of removing — preserves key existence tracking
-                    if let Some(rec) = self.store.get_mut(key) {
+                self.touched_keys.insert(key.clone());
+            }
+            OpKind::DeleteRange { start, end } => {
+                let keys: Vec<String> = self
+                    .store
+                    .range(start.clone()..end.clone())
+                    .filter(|(_, r)| r.value.is_some())
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                for k in &keys {
+                    if let Some(rec) = self.store.get_mut(k) {
                         rec.value = None;
-                        rec.deleted = true;
                     }
-                    self.touched_keys.insert(key.clone());
-                    self.pending_expects.insert(
-                        op.id.clone(),
-                        OpExpect::Write {
-                            status: if existed {
-                                OpStatus::Ok
-                            } else {
-                                OpStatus::NotFound
-                            },
-                        },
-                    );
+                    self.touched_keys.insert(k.clone());
                 }
-
-                OpKind::DeleteRange { start, end } => {
-                    let keys: Vec<String> = self
-                        .store
-                        .range(start.clone()..end.clone())
-                        .filter(|(_, r)| !r.deleted)
-                        .map(|(k, _)| k.clone())
-                        .collect();
-                    for k in &keys {
-                        if let Some(rec) = self.store.get_mut(k) {
-                            rec.value = None;
-                            rec.deleted = true;
-                        }
-                        self.touched_keys.insert(k.clone());
-                    }
-                    self.pending_expects
-                        .insert(op.id.clone(), OpExpect::Write { status: OpStatus::Ok });
-                }
-
-                OpKind::Cas {
-                    key,
-                    expected_version_id,
-                    new_value,
-                } => {
-                    let rec = self.store.entry(key.clone()).or_default();
-                    let status = if rec.version_id == *expected_version_id {
-                        rec.value = Some(new_value.clone());
-                        rec.version_id += 1;
-                        rec.deleted = false;
-                        OpStatus::Ok
-                    } else {
-                        OpStatus::VersionMismatch
-                    };
-                    self.touched_keys.insert(key.clone());
-                    self.pending_expects
-                        .insert(op.id.clone(), OpExpect::Write { status });
-                }
-
-                OpKind::Get { key } => {
-                    let rec = self.store.get(key).filter(|r| !r.deleted);
-                    self.pending_expects.insert(
-                        op.id.clone(),
-                        OpExpect::Get {
-                            value: rec.and_then(|r| r.value.clone()),
-                            version_id: rec.map(|r| r.version_id).unwrap_or(0),
-                        },
-                    );
-                }
-
-                OpKind::RangeScan { start, end } => {
-                    let records: Vec<RangeRecord> = self
-                        .store
-                        .range(start.clone()..end.clone())
-                        .filter(|(_, r)| !r.deleted)
-                        .filter_map(|(k, r)| {
-                            r.value.as_ref().map(|v| RangeRecord {
-                                key: k.clone(),
-                                value: v.clone(),
-                                version_id: r.version_id,
-                            })
-                        })
-                        .collect();
-                    self.pending_expects
-                        .insert(op.id.clone(), OpExpect::Range { records });
-                }
-
-                OpKind::List { prefix } => {
-                    let keys: Vec<String> = self
-                        .store
-                        .range(prefix.clone()..)
-                        .take_while(|(k, _)| k.starts_with(prefix.as_str()))
-                        .filter(|(_, r)| !r.deleted && r.value.is_some())
-                        .map(|(k, _)| k.clone())
-                        .collect();
-                    self.pending_expects
-                        .insert(op.id.clone(), OpExpect::List { keys });
-                }
-
-                OpKind::Fence => {}
             }
+            OpKind::Cas { key, new_value, .. } => {
+                let rec = self.store.entry(key.clone()).or_default();
+                rec.value = Some(new_value.clone());
+                rec.version_id += 1;
+                self.touched_keys.insert(key.clone());
+            }
+            _ => {} // reads and fences don't modify state
         }
     }
 
-    fn take_expects(&mut self) -> HashMap<String, OpExpect> {
-        std::mem::take(&mut self.pending_expects)
-    }
-
-    fn verify_response(
+    /// Verify a read result against reference state.
+    fn verify_read(
         &self,
-        expects: &HashMap<String, OpExpect>,
-        actual: &AdapterBatchResponse,
+        op: &Operation,
+        result: &AdapterOpResult,
         tolerance: &Option<Tolerance>,
-    ) -> Vec<ResponseFailure> {
-        let mut failures = Vec::new();
+    ) -> Option<ResponseFailure> {
         let ignore_version = Self::should_ignore_field("metadata.version_id", tolerance);
 
-        for result in &actual.results {
-            let Some(expected) = expects.get(&result.op_id) else {
-                continue;
-            };
-
-            match expected {
-                OpExpect::Write { status } => {
-                    if result.status != status.as_str() {
-                        failures.push(ResponseFailure {
-                            op_id: result.op_id.clone(),
-                            op: result.op.clone(),
-                            expected: format!("status={}", status.as_str()),
-                            actual: format!("status={}", result.status),
-                        });
-                    }
-                }
-                OpExpect::Get { value, version_id } => {
-                    if value.is_none() {
+        match &op.kind {
+            OpKind::Get { key } => {
+                let rec = self.store.get(key).filter(|r| r.value.is_some());
+                match rec {
+                    None => {
+                        // Key doesn't exist in reference — adapter should return not_found
                         if result.status != "not_found" {
-                            failures.push(ResponseFailure {
-                                op_id: result.op_id.clone(),
-                                op: result.op.clone(),
+                            return Some(ResponseFailure {
+                                op_id: op.id.clone(),
+                                op: "get".to_string(),
                                 expected: "status=not_found".to_string(),
                                 actual: format!("status={}", result.status),
                             });
                         }
-                    } else if result.status != "ok" {
-                        failures.push(ResponseFailure {
-                            op_id: result.op_id.clone(),
-                            op: result.op.clone(),
-                            expected: "status=ok".to_string(),
-                            actual: format!("status={}", result.status),
-                        });
-                    } else {
+                    }
+                    Some(r) => {
+                        if result.status != "ok" {
+                            return Some(ResponseFailure {
+                                op_id: op.id.clone(),
+                                op: "get".to_string(),
+                                expected: "status=ok".to_string(),
+                                actual: format!("status={}", result.status),
+                            });
+                        }
                         // Check value
-                        if result.value.as_ref() != value.as_ref() {
-                            failures.push(ResponseFailure {
-                                op_id: result.op_id.clone(),
-                                op: result.op.clone(),
-                                expected: format!("value={:?}", value),
+                        if result.value.as_ref() != r.value.as_ref() {
+                            return Some(ResponseFailure {
+                                op_id: op.id.clone(),
+                                op: "get".to_string(),
+                                expected: format!("value={:?}", r.value),
                                 actual: format!("value={:?}", result.value),
                             });
                         }
-                        // Check version_id (unless ignored by tolerance)
+                        // Check version_id
                         if !ignore_version {
                             if let Some(actual_vid) = result.version_id {
-                                if actual_vid != *version_id {
-                                    failures.push(ResponseFailure {
-                                        op_id: result.op_id.clone(),
-                                        op: result.op.clone(),
-                                        expected: format!("version_id={version_id}"),
+                                if actual_vid != r.version_id {
+                                    return Some(ResponseFailure {
+                                        op_id: op.id.clone(),
+                                        op: "get".to_string(),
+                                        expected: format!("version_id={}", r.version_id),
                                         actual: format!("version_id={actual_vid}"),
                                     });
                                 }
@@ -237,56 +137,124 @@ impl ReferenceModel for BasicKvReference {
                         }
                     }
                 }
-                OpExpect::Range { records } => {
-                    if let Some(actual_records) = &result.records {
-                        if actual_records.len() != records.len() {
-                            failures.push(ResponseFailure {
-                                op_id: result.op_id.clone(),
-                                op: result.op.clone(),
-                                expected: format!("{} records", records.len()),
-                                actual: format!("{} records", actual_records.len()),
+                None
+            }
+            OpKind::RangeScan { start, end } => {
+                let expected: Vec<RangeRecord> = self
+                    .store
+                    .range(start.clone()..end.clone())
+                    .filter(|(_, r)| r.value.is_some())
+                    .filter_map(|(k, r)| {
+                        r.value.as_ref().map(|v| RangeRecord {
+                            key: k.clone(),
+                            value: v.clone(),
+                            version_id: r.version_id,
+                        })
+                    })
+                    .collect();
+
+                if let Some(actual_records) = &result.records {
+                    if actual_records.len() != expected.len() {
+                        return Some(ResponseFailure {
+                            op_id: op.id.clone(),
+                            op: "range_scan".to_string(),
+                            expected: format!("{} records", expected.len()),
+                            actual: format!("{} records", actual_records.len()),
+                        });
+                    }
+                    for (i, (exp, act)) in expected.iter().zip(actual_records.iter()).enumerate() {
+                        let mut mismatch = exp.key != act.key || exp.value != act.value;
+                        if !ignore_version && exp.version_id != act.version_id {
+                            mismatch = true;
+                        }
+                        if mismatch {
+                            return Some(ResponseFailure {
+                                op_id: op.id.clone(),
+                                op: "range_scan".to_string(),
+                                expected: format!("record[{i}]={{key={},value={}}}", exp.key, exp.value),
+                                actual: format!("record[{i}]={{key={},value={}}}", act.key, act.value),
                             });
-                        } else {
-                            for (i, (exp, act)) in
-                                records.iter().zip(actual_records.iter()).enumerate()
-                            {
-                                let mut mismatch = false;
-                                let mut exp_str = format!("key={},value={}", exp.key, exp.value);
-                                let mut act_str = format!("key={},value={}", act.key, act.value);
-
-                                if exp.key != act.key || exp.value != act.value {
-                                    mismatch = true;
-                                }
-
-                                if !ignore_version && exp.version_id != act.version_id {
-                                    mismatch = true;
-                                    exp_str = format!("{exp_str},vid={}", exp.version_id);
-                                    act_str = format!("{act_str},vid={}", act.version_id);
-                                }
-
-                                if mismatch {
-                                    failures.push(ResponseFailure {
-                                        op_id: result.op_id.clone(),
-                                        op: result.op.clone(),
-                                        expected: format!("record[{i}]{{{exp_str}}}"),
-                                        actual: format!("record[{i}]{{{act_str}}}"),
-                                    });
-                                }
-                            }
                         }
                     }
                 }
-                OpExpect::List { keys } => {
-                    if let Some(actual_keys) = &result.keys {
-                        if actual_keys != keys {
-                            failures.push(ResponseFailure {
-                                op_id: result.op_id.clone(),
-                                op: result.op.clone(),
-                                expected: format!("keys={keys:?}"),
-                                actual: format!("keys={actual_keys:?}"),
-                            });
-                        }
+                None
+            }
+            OpKind::List { prefix } => {
+                let expected_keys: Vec<String> = self
+                    .store
+                    .range(prefix.clone()..)
+                    .take_while(|(k, _)| k.starts_with(prefix.as_str()))
+                    .filter(|(_, r)| r.value.is_some())
+                    .map(|(k, _)| k.clone())
+                    .collect();
+
+                if let Some(actual_keys) = &result.keys {
+                    if actual_keys != &expected_keys {
+                        return Some(ResponseFailure {
+                            op_id: op.id.clone(),
+                            op: "list".to_string(),
+                            expected: format!("keys={expected_keys:?}"),
+                            actual: format!("keys={actual_keys:?}"),
+                        });
                     }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn is_write(op: &OpKind) -> bool {
+        matches!(
+            op,
+            OpKind::Put { .. }
+                | OpKind::Delete { .. }
+                | OpKind::DeleteRange { .. }
+                | OpKind::Cas { .. }
+        )
+    }
+
+    fn is_read(op: &OpKind) -> bool {
+        matches!(
+            op,
+            OpKind::Get { .. } | OpKind::RangeScan { .. } | OpKind::List { .. }
+        )
+    }
+}
+
+impl ReferenceModel for BasicKvReference {
+    fn process_response(
+        &mut self,
+        ops: &[Operation],
+        response: &AdapterBatchResponse,
+        tolerance: &Option<Tolerance>,
+    ) -> Vec<ResponseFailure> {
+        let mut failures = Vec::new();
+
+        // Build op_id -> Operation map
+        let op_map: HashMap<&str, &Operation> = ops
+            .iter()
+            .filter(|op| !op.id.is_empty()) // skip fences (empty id)
+            .map(|op| (op.id.as_str(), op))
+            .collect();
+
+        for result in &response.results {
+            let Some(op) = op_map.get(result.op_id.as_str()) else {
+                continue;
+            };
+
+            if Self::is_write(&op.kind) {
+                if result.status == "ok" {
+                    // Write succeeded — apply to reference state
+                    self.apply_write(op);
+                }
+                // Write failures (not_found, version_mismatch) are expected for
+                // delete-nonexistent and cas-mismatch — these are not verification errors.
+                // The reference state is NOT updated for failed writes.
+            } else if Self::is_read(&op.kind) {
+                // Read — verify against current reference state
+                if let Some(failure) = self.verify_read(op, result, tolerance) {
+                    failures.push(failure);
                 }
             }
         }
@@ -314,7 +282,6 @@ impl ReferenceModel for BasicKvReference {
                 (Some(e), Some(a)) => {
                     let value_mismatch = e.value != a.value;
                     let version_mismatch = !ignore_version && e.version_id != a.version_id;
-
                     if value_mismatch || version_mismatch {
                         failures.push(CheckpointFailure {
                             key: key.clone(),
@@ -344,8 +311,8 @@ impl ReferenceModel for BasicKvReference {
         keys.iter()
             .map(|k| {
                 let state = self.store.get(k).and_then(|r| {
-                    if r.deleted || r.value.is_none() {
-                        None // Deleted or never had value → absent
+                    if r.value.is_none() {
+                        None
                     } else {
                         Some(RecordState {
                             value: r.value.clone(),
@@ -362,6 +329,5 @@ impl ReferenceModel for BasicKvReference {
     fn clear(&mut self) {
         self.store.clear();
         self.touched_keys.clear();
-        self.pending_expects.clear();
     }
 }
