@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Result;
 use tokio::sync::RwLock;
@@ -28,7 +27,6 @@ pub struct HypothesisManager {
 
 struct ActiveRun {
     pub run_id: String,
-    pub adapter_name: Option<String>, // for teardown
     pub cancel: CancellationToken,
     pub executor_handle: JoinHandle<(Box<dyn ReferenceModel>, StopReason)>,
     pub progress: Arc<RwLock<ProgressInfo>>,
@@ -93,42 +91,17 @@ impl HypothesisManager {
             )
             .await?;
 
-        // Connect to adapter by service name
-        let mut adapter_name_for_teardown: Option<String> = None;
+        // Connect to adapter — adapter is user-managed, pilot just connects
         let adapter_client: Option<Box<dyn AdapterClient>> = if let Some(adapter_def) = &adapter {
-            adapter_name_for_teardown = Some(adapter_def.name.clone());
-
-            // Use override address if provided, otherwise derive from K8s or name
-            let addr = if let Some(override_addr) = &adapter_addr_override {
-                override_addr.clone()
-            } else if let Some(scheduler) = &self.shared.scheduler {
-                // In K8s — deploy the adapter pod, then connect by service name
-                info!(
-                    hypothesis_id = %self.hypothesis_id,
-                    adapter = %adapter_def.name,
-                    image = %adapter_def.image,
-                    "deploying adapter pod"
-                );
-                let grpc_addr = scheduler
-                    .deploy_adapter(&self.hypothesis_id, adapter_def)
-                    .await?;
-                scheduler
-                    .wait_for_ready(&self.hypothesis_id, &adapter_def.name, Duration::from_secs(120))
-                    .await?;
-                grpc_addr
-            } else {
-                // Local dev — use adapter name as localhost service
-                format!("{}:9090", adapter_def.name)
-            };
+            // Use override address if provided, otherwise derive from adapter name
+            let addr = adapter_addr_override
+                .unwrap_or_else(|| format!("{}:9090", adapter_def.name));
 
             info!(adapter = %adapter_def.name, %addr, "connecting to adapter");
             match crate::adapter::grpc_client::GrpcAdapterClient::connect(&addr).await {
                 Ok(client) => Some(Box::new(client) as Box<dyn AdapterClient>),
                 Err(e) => {
                     warn!(adapter = %adapter_def.name, %addr, error = %e, "failed to connect, running without adapter");
-                    if let Some(scheduler) = &self.shared.scheduler {
-                        let _ = scheduler.teardown_adapter(&self.hypothesis_id, &adapter_def.name).await;
-                    }
                     None
                 }
             }
@@ -151,26 +124,10 @@ impl HypothesisManager {
             adapter_client,
         };
 
-        // Capture scheduler + hypothesis_id for teardown after executor finishes
-        let scheduler = self.shared.scheduler.clone();
-        let hyp_id = self.hypothesis_id.clone();
-        let teardown_name = adapter_name_for_teardown.clone();
-
-        let handle = tokio::spawn(async move {
-            let result = executor.run().await;
-
-            // Teardown adapter pod after run
-            if let (Some(scheduler), Some(name)) = (&scheduler, &teardown_name) {
-                info!(adapter = %name, "tearing down adapter pod");
-                let _ = scheduler.teardown_adapter(&hyp_id, name).await;
-            }
-
-            result
-        });
+        let handle = tokio::spawn(async move { executor.run().await });
 
         self.run_state = Some(ActiveRun {
             run_id: run_id.clone(),
-            adapter_name: adapter_name_for_teardown,
             cancel,
             executor_handle: handle,
             progress: progress.clone(),
@@ -200,10 +157,6 @@ impl HypothesisManager {
                 }
             }
 
-            // Teardown adapter if scheduler deployed it
-            if let (Some(scheduler), Some(name)) = (&self.shared.scheduler, &run_state.adapter_name) {
-                let _ = scheduler.teardown_adapter(&self.hypothesis_id, name).await;
-            }
         }
         Ok(())
     }

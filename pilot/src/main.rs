@@ -5,7 +5,6 @@ mod config;
 mod engine;
 mod generator;
 mod reference;
-mod scheduler;
 mod storage;
 mod types;
 
@@ -42,11 +41,6 @@ async fn main() -> Result<()> {
     let rocks = RocksStore::new(Path::new(&config.rocksdb_path))?;
     let files = FileStore::new(Path::new(&config.data_dir));
 
-    let scheduler = match scheduler::k8s::K8sScheduler::try_new(&config.namespace, &config.namespace).await {
-        Ok(s) => { info!("K8s scheduler initialized"); Some(s) }
-        Err(e) => { warn!("K8s scheduler not available: {e}"); None }
-    };
-
     // Seed built-in generators
     for gen_info in generator::generators::list_generators() {
         let workload = generator::generators::get_generator(gen_info.name);
@@ -59,7 +53,6 @@ async fn main() -> Result<()> {
         sqlite: sqlite.clone(),
         rocks: rocks.clone(),
         files: files.clone(),
-        scheduler: scheduler.clone(),
     };
 
     let managers = ManagerRegistry::new(shared);
@@ -75,7 +68,6 @@ async fn main() -> Result<()> {
         rocks,
         files,
         managers,
-        scheduler,
     };
 
     let http_addr: SocketAddr = format!("0.0.0.0:{}", config.http_port).parse()?;
