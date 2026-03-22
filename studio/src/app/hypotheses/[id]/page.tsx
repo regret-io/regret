@@ -1,31 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, use } from "react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -39,26 +15,63 @@ import { StatusBadge } from "@/components/status-badge";
 import type {
   Hypothesis,
   StatusResponse,
-  Adapter,
+  RunResult,
 } from "@/lib/api";
 import {
   getHypothesis,
   getStatus,
   getEvents,
+  getResults,
   startRun,
   stopRun,
   downloadBundle,
-  listAdapters,
 } from "@/lib/api";
 import {
   PlayIcon,
   SquareIcon,
   DownloadIcon,
   Loader2Icon,
+  ActivityIcon,
+  ZapIcon,
+  ShieldCheckIcon,
+  AlertTriangleIcon,
+  ClockIcon,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ParsedEvent {
   [key: string]: unknown;
+}
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  isRunning,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ComponentType<{ className?: string }>;
+  isRunning: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+      <div className="flex size-9 items-center justify-center rounded-md bg-zinc-800">
+        <Icon className="size-4 text-zinc-400" />
+      </div>
+      <div>
+        <p className="text-xs text-zinc-500">{label}</p>
+        <p
+          className={cn(
+            "text-lg font-mono font-semibold text-zinc-100",
+            isRunning && "animate-pulse-dot"
+          )}
+        >
+          {value}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function HypothesisDetailPage({
@@ -71,29 +84,23 @@ export default function HypothesisDetailPage({
   const [hypothesis, setHypothesis] = useState<Hypothesis | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [events, setEvents] = useState<ParsedEvent[]>([]);
-  const [adapters, setAdapters] = useState<Adapter[]>([]);
+  const [results, setResults] = useState<RunResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [runDialogOpen, setRunDialogOpen] = useState(false);
-
-  // Run form
-  const [adapter, setAdapter] = useState("");
-  const [adapterAddr, setAdapterAddr] = useState("");
-  const [duration, setDuration] = useState("30s");
   const [submitting, setSubmitting] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [h, s, evText, a] = await Promise.all([
+      const [h, s, evText, r] = await Promise.all([
         getHypothesis(id),
         getStatus(id).catch(() => null),
         getEvents(id).catch(() => ""),
-        listAdapters().catch(() => []),
+        getResults(id).catch(() => []),
       ]);
       setHypothesis(h);
       setStatus(s);
-      // Parse NDJSON text: one JSON object per line
+      setResults(r);
       const parsed: ParsedEvent[] = [];
       if (evText) {
         for (const line of evText.split("\n")) {
@@ -107,7 +114,6 @@ export default function HypothesisDetailPage({
         }
       }
       setEvents(parsed);
-      setAdapters(a);
     } catch {
       // API error
     } finally {
@@ -119,7 +125,6 @@ export default function HypothesisDetailPage({
     loadData();
   }, [loadData]);
 
-  // Poll when running
   useEffect(() => {
     if (hypothesis?.status === "running") {
       pollRef.current = setInterval(async () => {
@@ -127,7 +132,6 @@ export default function HypothesisDetailPage({
           const s = await getStatus(id);
           setStatus(s);
           if (s.status !== "running") {
-            // Reload full data when run finishes
             loadData();
           }
         } catch {
@@ -146,14 +150,7 @@ export default function HypothesisDetailPage({
   async function handleStartRun() {
     setSubmitting(true);
     try {
-      await startRun(id, {
-        adapter: adapter || undefined,
-        adapter_addr: adapterAddr || undefined,
-        execution: {
-          duration,
-        },
-      });
-      setRunDialogOpen(false);
+      await startRun(id);
       loadData();
     } catch {
       // error
@@ -182,219 +179,204 @@ export default function HypothesisDetailPage({
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
+        <Loader2Icon className="size-5 animate-spin text-zinc-500" />
       </div>
     );
   }
 
   if (!hypothesis) {
     return (
-      <p className="text-sm text-muted-foreground">Hypothesis not found.</p>
+      <p className="text-sm text-zinc-500">Hypothesis not found.</p>
     );
   }
 
   const isRunning = hypothesis.status === "running";
+  const progress = status?.progress;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {hypothesis.name}
-        </h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-semibold tracking-tight text-zinc-100">
+            {hypothesis.name}
+          </h1>
+          <StatusBadge status={hypothesis.status} />
+        </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleDownload}>
             <DownloadIcon className="size-4 mr-1" />
             Bundle
           </Button>
-
           {isRunning ? (
             <Button variant="destructive" onClick={handleStopRun}>
               <SquareIcon className="size-4 mr-1" />
               Stop Run
             </Button>
           ) : (
-            <Dialog open={runDialogOpen} onOpenChange={setRunDialogOpen}>
-              <DialogTrigger render={<Button />}>
-                <PlayIcon className="size-4 mr-1" />
-                Start Run
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Start Run</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-2">
-                  <div className="grid gap-2">
-                    <Label>Adapter</Label>
-                    <Select value={adapter} onValueChange={(v) => setAdapter(v ?? "")}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select adapter" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {adapters.map((a) => (
-                          <SelectItem key={a.id} value={a.name}>
-                            {a.name}
-                          </SelectItem>
-                        ))}
-                        {adapters.length === 0 && (
-                          <SelectItem value="_none" disabled>
-                            No adapters available
-                          </SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="duration">Duration</Label>
-                    <Input
-                      id="duration"
-                      value={duration}
-                      onChange={(e) => setDuration(e.target.value)}
-                      placeholder="30s, 5m, 1h"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="adapter_addr">Adapter Address (optional)</Label>
-                    <Input
-                      id="adapter_addr"
-                      value={adapterAddr}
-                      onChange={(e) => setAdapterAddr(e.target.value)}
-                      placeholder="http://localhost:9090"
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <DialogClose render={<Button variant="outline" />}>
-                    Cancel
-                  </DialogClose>
-                  <Button
-                    onClick={handleStartRun}
-                    disabled={submitting}
-                  >
-                    {submitting ? "Starting..." : "Start"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <Button onClick={handleStartRun} disabled={submitting}>
+              <PlayIcon className="size-4 mr-1" />
+              {submitting ? "Starting..." : "Start Run"}
+            </Button>
           )}
         </div>
       </div>
 
-      {/* Info card */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Details</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Status</dt>
-              <dd>
-                <StatusBadge status={hypothesis.status} />
-              </dd>
-              <dt className="text-muted-foreground">Generator</dt>
-              <dd>{hypothesis.generator}</dd>
-              <dt className="text-muted-foreground">Created</dt>
-              <dd>{new Date(hypothesis.created_at).toLocaleString()}</dd>
-              <dt className="text-muted-foreground">Last Run</dt>
-              <dd>
-                {hypothesis.last_run_at
-                  ? new Date(hypothesis.last_run_at).toLocaleString()
-                  : "-"}
-              </dd>
-            </dl>
-          </CardContent>
-        </Card>
-
-        {/* Status card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Run Status
-              {isRunning && (
-                <Loader2Icon className="size-3.5 animate-spin text-blue-500" />
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {status?.progress ? (
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <dt className="text-muted-foreground">Ops/sec</dt>
-                <dd className="font-mono">{status.progress.ops_per_sec.toFixed(1)}</dd>
-                <dt className="text-muted-foreground">Elapsed</dt>
-                <dd className="font-mono">{status.progress.elapsed_secs.toFixed(1)}s</dd>
-                <dt className="text-muted-foreground">Total Ops</dt>
-                <dd className="font-mono">{status.progress.total_ops}</dd>
-                <dt className="text-muted-foreground">Completed Ops</dt>
-                <dd className="font-mono">{status.progress.completed_ops}</dd>
-                <dt className="text-muted-foreground">Checkpoints</dt>
-                <dd className="font-mono">
-                  {status.progress.passed_checkpoints}/{status.progress.total_checkpoints}
-                </dd>
-                <dt className="text-muted-foreground">Failed Ops</dt>
-                <dd className="font-mono">{status.progress.failed_response_ops}</dd>
-              </dl>
-            ) : status ? (
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <dt className="text-muted-foreground">Status</dt>
-                <dd>{status.status}</dd>
-                {status.run_id && (
-                  <>
-                    <dt className="text-muted-foreground">Run ID</dt>
-                    <dd className="font-mono text-xs">{status.run_id}</dd>
-                  </>
-                )}
-              </dl>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No run data available.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+      {/* Stat cards row */}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+        <StatCard
+          label="Total Ops"
+          value={progress?.completed_ops ?? 0}
+          icon={ActivityIcon}
+          isRunning={isRunning}
+        />
+        <StatCard
+          label="Ops/sec"
+          value={progress ? progress.ops_per_sec.toFixed(1) : "0.0"}
+          icon={ZapIcon}
+          isRunning={isRunning}
+        />
+        <StatCard
+          label="Checkpoints"
+          value={
+            progress
+              ? `${progress.passed_checkpoints}/${progress.total_checkpoints}`
+              : "0/0"
+          }
+          icon={ShieldCheckIcon}
+          isRunning={isRunning}
+        />
+        <StatCard
+          label="Failures"
+          value={progress?.failed_response_ops ?? 0}
+          icon={AlertTriangleIcon}
+          isRunning={isRunning}
+        />
+        <StatCard
+          label="Elapsed Time"
+          value={progress ? `${progress.elapsed_secs.toFixed(1)}s` : "0.0s"}
+          icon={ClockIcon}
+          isRunning={isRunning}
+        />
       </div>
 
-      {/* Events tab */}
+      {/* Tabs */}
       <Tabs defaultValue="events">
         <TabsList>
           <TabsTrigger value="events">Events</TabsTrigger>
+          <TabsTrigger value="results">Results</TabsTrigger>
+          <TabsTrigger value="config">Config</TabsTrigger>
         </TabsList>
+
         <TabsContent value="events">
           {events.length === 0 ? (
-            <p className="py-4 text-sm text-muted-foreground">
-              No events yet.
-            </p>
+            <p className="py-4 text-sm text-zinc-500">No events yet.</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Kind</TableHead>
-                  <TableHead>Data</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {events.map((e, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="text-muted-foreground">
-                      {e.timestamp
-                        ? new Date(e.timestamp as string).toLocaleString()
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                        {(e.kind as string) || (e.type as string) || "event"}
-                      </code>
-                    </TableCell>
-                    <TableCell>
-                      <code className="text-xs max-w-[400px] truncate block">
-                        {JSON.stringify(e)}
-                      </code>
-                    </TableCell>
+            <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-zinc-800 hover:bg-transparent">
+                    <TableHead className="text-zinc-400 w-44">Timestamp</TableHead>
+                    <TableHead className="text-zinc-400 w-28">Type</TableHead>
+                    <TableHead className="text-zinc-400">Details</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {events.map((e, i) => (
+                    <TableRow key={i} className="border-zinc-800">
+                      <TableCell className="text-zinc-500 font-mono text-xs">
+                        {e.timestamp
+                          ? new Date(e.timestamp as string).toLocaleString()
+                          : "-"}
+                      </TableCell>
+                      <TableCell>
+                        <code className="text-xs bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded">
+                          {(e.kind as string) || (e.type as string) || "event"}
+                        </code>
+                      </TableCell>
+                      <TableCell>
+                        <code className="text-xs text-zinc-400 max-w-[500px] truncate block">
+                          {JSON.stringify(e)}
+                        </code>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="results">
+          {results.length === 0 ? (
+            <p className="py-4 text-sm text-zinc-500">No results yet.</p>
+          ) : (
+            <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-zinc-800 hover:bg-transparent">
+                    <TableHead className="text-zinc-400">Run ID</TableHead>
+                    <TableHead className="text-zinc-400">Checkpoints</TableHead>
+                    <TableHead className="text-zinc-400">Failed Ops</TableHead>
+                    <TableHead className="text-zinc-400">Stop Reason</TableHead>
+                    <TableHead className="text-zinc-400">Started</TableHead>
+                    <TableHead className="text-zinc-400">Finished</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {results.map((r) => (
+                    <TableRow key={r.id} className="border-zinc-800">
+                      <TableCell className="font-mono text-xs text-zinc-300">
+                        {r.run_id.slice(0, 8)}
+                      </TableCell>
+                      <TableCell className="font-mono text-zinc-300">
+                        {r.passed_checkpoints}/{r.total_checkpoints}
+                      </TableCell>
+                      <TableCell className="font-mono text-zinc-300">
+                        {r.failed_response_ops}
+                      </TableCell>
+                      <TableCell className="text-zinc-400">
+                        {r.stop_reason}
+                      </TableCell>
+                      <TableCell className="text-zinc-500 text-xs">
+                        {r.started_at
+                          ? new Date(r.started_at).toLocaleString()
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="text-zinc-500 text-xs">
+                        {r.finished_at
+                          ? new Date(r.finished_at).toLocaleString()
+                          : "-"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="config">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+            <pre className="text-xs font-mono text-zinc-300 whitespace-pre-wrap overflow-x-auto">
+              {JSON.stringify(
+                {
+                  id: hypothesis.id,
+                  name: hypothesis.name,
+                  generator: hypothesis.generator,
+                  adapter: hypothesis.adapter ?? null,
+                  adapter_addr: hypothesis.adapter_addr ?? null,
+                  duration: hypothesis.duration ?? null,
+                  tolerance: hypothesis.tolerance ?? null,
+                  status: hypothesis.status,
+                  created_at: hypothesis.created_at,
+                  last_run_at: hypothesis.last_run_at,
+                },
+                null,
+                2
+              )}
+            </pre>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

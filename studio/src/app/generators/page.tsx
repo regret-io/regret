@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Generator } from "@/lib/api";
 import { listGenerators, createGenerator } from "@/lib/api";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, Loader2Icon } from "lucide-react";
 
 const OPERATION_TYPES = [
   "put",
@@ -96,19 +96,21 @@ export default function GeneratorsPage() {
   function formatWorkload(workload: Record<string, number>): string {
     const entries = Object.entries(workload).filter(([, v]) => v > 0);
     if (entries.length === 0) return "-";
-    return entries.map(([k, v]) => `${k}: ${v}`).join(", ");
+    return entries.map(([k, v]) => `${k}:${v}`).join(", ");
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Generators</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-zinc-100">
+          Generators
+        </h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger render={<Button />}>
             <PlusIcon className="size-4 mr-1" />
             New Generator
           </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-lg bg-zinc-900 border-zinc-800">
             <DialogHeader>
               <DialogTitle>New Generator</DialogTitle>
             </DialogHeader>
@@ -145,7 +147,9 @@ export default function GeneratorsPage() {
                 <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
                   {OPERATION_TYPES.map((op) => (
                     <div key={op} className="flex items-center gap-2">
-                      <Label className="text-xs font-mono w-28 shrink-0">{op}</Label>
+                      <Label className="text-xs font-mono w-28 shrink-0 text-zinc-400">
+                        {op}
+                      </Label>
                       <Input
                         type="number"
                         min={0}
@@ -158,7 +162,7 @@ export default function GeneratorsPage() {
                   ))}
                 </div>
                 {Object.keys(weights).length > 0 && (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-zinc-500">
                     Active: {Object.entries(weights).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).join(", ")}
                   </p>
                 )}
@@ -177,48 +181,58 @@ export default function GeneratorsPage() {
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
+        <div className="flex items-center justify-center py-12">
+          <Loader2Icon className="size-5 animate-spin text-zinc-500" />
+        </div>
       ) : generators.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-zinc-500">
           No generators yet. Create one to get started.
         </p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Rate</TableHead>
-              <TableHead>Workload</TableHead>
-              <TableHead>Type</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {generators.map((g) => (
-              <TableRow key={g.name}>
-                <TableCell className="font-medium">{g.name}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {g.description}
-                </TableCell>
-                <TableCell className="font-mono">
-                  {g.rate} ops/s
-                </TableCell>
-                <TableCell>
-                  <code className="text-xs bg-muted px-1.5 py-0.5 rounded max-w-[200px] truncate block">
-                    {formatWorkload(g.workload)}
-                  </code>
-                </TableCell>
-                <TableCell>
-                  {g.builtin ? (
-                    <Badge variant="secondary">builtin</Badge>
-                  ) : (
-                    <Badge variant="outline">custom</Badge>
-                  )}
-                </TableCell>
+        <div className="rounded-lg border border-zinc-800 overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-zinc-800 hover:bg-transparent">
+                <TableHead className="text-zinc-400">Name</TableHead>
+                <TableHead className="text-zinc-400">Description</TableHead>
+                <TableHead className="text-zinc-400">Rate</TableHead>
+                <TableHead className="text-zinc-400">Workload</TableHead>
+                <TableHead className="text-zinc-400">Type</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {generators.map((g) => (
+                <TableRow key={g.name} className="border-zinc-800">
+                  <TableCell className="font-medium text-zinc-100">
+                    {g.name}
+                  </TableCell>
+                  <TableCell className="text-zinc-400">
+                    {g.description}
+                  </TableCell>
+                  <TableCell className="font-mono text-zinc-300">
+                    {g.rate} ops/s
+                  </TableCell>
+                  <TableCell>
+                    <code className="text-xs bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded max-w-[200px] truncate block">
+                      {formatWorkload(g.workload)}
+                    </code>
+                  </TableCell>
+                  <TableCell>
+                    {g.builtin ? (
+                      <Badge variant="secondary" className="bg-zinc-800 text-zinc-300 border-zinc-700">
+                        builtin
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-zinc-700 text-zinc-400">
+                        custom
+                      </Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );
