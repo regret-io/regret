@@ -253,7 +253,7 @@ impl SqliteStore {
     ) -> Result<()> {
         sqlx::query(
             "INSERT INTO generators (name, description, workload, rate, builtin) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(name) DO UPDATE SET description = excluded.description, workload = excluded.workload, rate = excluded.rate",
+             ON CONFLICT(name) DO NOTHING",
         )
         .bind(name)
         .bind(description)
