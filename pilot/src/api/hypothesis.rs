@@ -46,7 +46,7 @@ pub async fn create(
         .create_hypothesis(
             &id,
             &req.name,
-            &req.profile,
+            &req.generator,
             &state_machine_json,
             tolerance_json.as_deref(),
         )
@@ -59,7 +59,7 @@ pub async fn create(
     // Create manager
     state
         .managers
-        .create_from_hypothesis(&id, &req.profile, tolerance_json.clone())
+        .create_from_hypothesis(&id, &req.generator, tolerance_json.clone())
         .await;
 
     let response = to_hypothesis_response(&hypothesis);
@@ -163,10 +163,11 @@ pub async fn generate(
     if req.ops == 0 {
         return Err(ApiError::BadRequest("ops must be > 0".to_string()));
     }
-    if req.profile != "basic-kv" {
+    // Validate generator exists
+    if state.sqlite.get_generator(&req.generator).await?.is_none() {
         return Err(ApiError::BadRequest(format!(
-            "unsupported profile: {}",
-            req.profile
+            "unknown generator: {}",
+            req.generator
         )));
     }
 
@@ -412,7 +413,7 @@ fn to_hypothesis_response(h: &crate::storage::sqlite::Hypothesis) -> HypothesisR
     HypothesisResponse {
         id: h.id.clone(),
         name: h.name.clone(),
-        profile: h.profile.clone(),
+        generator: h.generator.clone(),
         state_machine: serde_json::from_str(&h.state_machine).unwrap_or_default(),
         tolerance: h
             .tolerance

@@ -17,7 +17,7 @@ use super::executor::{AdapterClient, ExecutionConfig, Executor, ProgressInfo, St
 /// Per-hypothesis lifecycle manager.
 pub struct HypothesisManager {
     pub hypothesis_id: String,
-    pub profile: String,
+    pub generator_name: String,
     pub tolerance: Option<Tolerance>,
 
     reference: Option<Box<dyn ReferenceModel>>,
@@ -37,7 +37,7 @@ struct ActiveRun {
 impl HypothesisManager {
     pub fn new(
         hypothesis_id: String,
-        profile: String,
+        generator_name: String,
         tolerance_json: Option<String>,
         reference: Box<dyn ReferenceModel>,
         shared: SharedServices,
@@ -48,7 +48,7 @@ impl HypothesisManager {
 
         Self {
             hypothesis_id,
-            profile,
+            generator_name,
             tolerance,
             reference: Some(reference),
             run_state: None,
@@ -207,7 +207,7 @@ impl HypothesisManager {
                 Err(e) => {
                     error!(error = %e, "executor task panicked");
                     self.reference = Some(crate::reference::create_reference(
-                        &self.profile,
+                        &self.generator_name,
                         self.shared.rocks.clone(),
                         self.hypothesis_id.clone(),
                     ));

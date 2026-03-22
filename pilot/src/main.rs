@@ -61,15 +61,15 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Seed built-in profiles into SQLite
-    for profile in generator::profiles::list_profiles() {
-        let workload = generator::profiles::get_profile(profile.name);
+    // Seed built-in generators into SQLite
+    for gen_info in generator::generators::list_generators() {
+        let workload = generator::generators::get_generator(gen_info.name);
         let workload_json = serde_json::to_string(&workload)?;
         sqlite
-            .upsert_profile(profile.name, profile.description, &workload_json, true)
+            .upsert_generator(gen_info.name, gen_info.description, &workload_json, true)
             .await?;
     }
-    info!("built-in profiles seeded");
+    info!("built-in generators seeded");
 
     let shared = SharedServices {
         sqlite: sqlite.clone(),
@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
     let hypotheses = sqlite.list_hypotheses().await?;
     for h in &hypotheses {
         managers
-            .create_from_hypothesis(&h.id, &h.profile, h.tolerance.clone())
+            .create_from_hypothesis(&h.id, &h.generator, h.tolerance.clone())
             .await;
         info!(id = %h.id, name = %h.name, "loaded hypothesis");
     }

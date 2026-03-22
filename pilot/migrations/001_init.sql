@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS hypotheses (
     id            TEXT PRIMARY KEY,
     name          TEXT UNIQUE NOT NULL,
-    profile       TEXT NOT NULL,
+    generator     TEXT NOT NULL,
     state_machine TEXT NOT NULL,
     tolerance     TEXT,
     status        TEXT NOT NULL DEFAULT 'idle',
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS adapters (
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
-CREATE TABLE IF NOT EXISTS profiles (
+CREATE TABLE IF NOT EXISTS generators (
     name            TEXT PRIMARY KEY,
     description     TEXT NOT NULL DEFAULT '',
     workload        TEXT NOT NULL,

@@ -7,7 +7,7 @@ use crate::engine::executor::ProgressInfo;
 #[derive(Debug, Deserialize)]
 pub struct CreateHypothesisRequest {
     pub name: String,
-    pub profile: String,
+    pub generator: String,
     pub state_machine: serde_json::Value,
     #[serde(default)]
     pub tolerance: Option<serde_json::Value>,
@@ -17,7 +17,7 @@ pub struct CreateHypothesisRequest {
 pub struct HypothesisResponse {
     pub id: String,
     pub name: String,
-    pub profile: String,
+    pub generator: String,
     pub state_machine: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tolerance: Option<serde_json::Value>,

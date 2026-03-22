@@ -4,7 +4,9 @@ import io.regret.sdk.*;
 import io.regret.sdk.payload.*;
 import io.streamnative.oxia.client.api.OxiaClientBuilder;
 import io.streamnative.oxia.client.api.GetResult;
+import io.streamnative.oxia.client.api.ListOption;
 import io.streamnative.oxia.client.api.PutOption;
+import io.streamnative.oxia.client.api.RangeScanOption;
 import io.streamnative.oxia.client.api.SyncOxiaClient;
 import io.streamnative.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import org.slf4j.Logger;
@@ -119,6 +121,63 @@ public class OxiaKVAdapter implements Adapter {
                     var p = ListPayload.fromBytes(op.payload());
                     var keys = client.list(p.prefix(), p.prefix() + "\uffff");
                     yield OpResult.list(op.opId(), keys);
+                }
+                case "ephemeral_put" -> {
+                    var p = EphemeralPutPayload.fromBytes(op.payload());
+                    client.put(p.key(), p.value().getBytes(StandardCharsets.UTF_8),
+                            Set.of(PutOption.AsEphemeralRecord));
+                    yield OpResult.ok(op.opId(), "ephemeral_put");
+                }
+                case "indexed_put" -> {
+                    var p = IndexedPutPayload.fromBytes(op.payload());
+                    client.put(p.key(), p.value().getBytes(StandardCharsets.UTF_8),
+                            Set.of(PutOption.SecondaryIndex(p.indexName(), p.indexKey())));
+                    yield OpResult.ok(op.opId(), "indexed_put");
+                }
+                case "indexed_get" -> {
+                    var p = IndexedGetPayload.fromBytes(op.payload());
+                    // GetOption does not support UseIndex; use list with UseIndex to
+                    // resolve the primary key, then get the record by primary key.
+                    var keys = client.list(p.indexKey(), p.indexKey() + "\0",
+                            Set.of(ListOption.UseIndex(p.indexName())));
+                    if (keys.isEmpty()) {
+                        yield OpResult.notFound(op.opId(), "indexed_get");
+                    } else {
+                        GetResult res = client.get(keys.get(0));
+                        if (res == null) {
+                            yield OpResult.notFound(op.opId(), "indexed_get");
+                        } else {
+                            yield OpResult.get(op.opId(),
+                                    new String(res.getValue(), StandardCharsets.UTF_8),
+                                    res.getVersion().versionId());
+                        }
+                    }
+                }
+                case "indexed_list" -> {
+                    var p = IndexedListPayload.fromBytes(op.payload());
+                    var keys = client.list(p.start(), p.end(),
+                            Set.of(ListOption.UseIndex(p.indexName())));
+                    yield OpResult.list(op.opId(), keys);
+                }
+                case "indexed_range_scan" -> {
+                    var p = IndexedRangeScanPayload.fromBytes(op.payload());
+                    var iterable = client.rangeScan(p.start(), p.end(),
+                            Set.of(RangeScanOption.UseIndex(p.indexName())));
+                    var records = new ArrayList<OpResult.RangeScanRecord>();
+                    for (GetResult r : iterable) {
+                        records.add(new OpResult.RangeScanRecord(
+                                r.getKey(),
+                                new String(r.getValue(), StandardCharsets.UTF_8),
+                                r.getVersion().versionId()));
+                    }
+                    yield OpResult.rangeScan(op.opId(), records);
+                }
+                case "sequence_put" -> {
+                    var p = SequencePutPayload.fromBytes(op.payload());
+                    client.put(p.prefix(), p.value().getBytes(StandardCharsets.UTF_8),
+                            Set.of(PutOption.SequenceKeysDeltas(List.of(p.delta())),
+                                    PutOption.PartitionKey(p.prefix())));
+                    yield OpResult.ok(op.opId(), "sequence_put");
                 }
                 default -> OpResult.error(op.opId(), op.opType(),
                         "unknown op type: " + op.opType());

@@ -41,13 +41,13 @@ impl ManagerRegistry {
     pub async fn create_from_hypothesis(
         &self,
         id: &str,
-        profile: &str,
+        generator_name: &str,
         tolerance: Option<String>,
     ) {
-        let reference = reference::create_reference(profile, self.shared.rocks.clone(), id.to_string());
+        let reference = reference::create_reference(generator_name, self.shared.rocks.clone(), id.to_string());
         let manager = HypothesisManager::new(
             id.to_string(),
-            profile.to_string(),
+            generator_name.to_string(),
             tolerance,
             reference,
             self.shared.clone(),

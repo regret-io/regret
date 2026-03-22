@@ -11,7 +11,7 @@ pub struct SqliteStore {
 pub struct Hypothesis {
     pub id: String,
     pub name: String,
-    pub profile: String,
+    pub generator: String,
     pub state_machine: String,
     pub tolerance: Option<String>,
     pub status: String,
@@ -30,7 +30,7 @@ pub struct AdapterRecord {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub struct ProfileRecord {
+pub struct GeneratorRecord {
     pub name: String,
     pub description: String,
     pub workload: String, // JSON object
@@ -89,16 +89,16 @@ impl SqliteStore {
         &self,
         id: &str,
         name: &str,
-        profile: &str,
+        generator: &str,
         state_machine: &str,
         tolerance: Option<&str>,
     ) -> Result<Hypothesis> {
         sqlx::query(
-            "INSERT INTO hypotheses (id, name, profile, state_machine, tolerance) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO hypotheses (id, name, generator, state_machine, tolerance) VALUES (?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(name)
-        .bind(profile)
+        .bind(generator)
         .bind(state_machine)
         .bind(tolerance)
         .execute(&self.pool)
@@ -209,7 +209,7 @@ impl SqliteStore {
 
     // --- Profiles ---
 
-    pub async fn upsert_profile(
+    pub async fn upsert_generator(
         &self,
         name: &str,
         description: &str,
@@ -217,7 +217,7 @@ impl SqliteStore {
         builtin: bool,
     ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO profiles (name, description, workload, builtin) VALUES (?, ?, ?, ?)
+            "INSERT INTO generators (name, description, workload, builtin) VALUES (?, ?, ?, ?)
              ON CONFLICT(name) DO UPDATE SET description = excluded.description, workload = excluded.workload",
         )
         .bind(name)
@@ -229,21 +229,21 @@ impl SqliteStore {
         Ok(())
     }
 
-    pub async fn get_profile(&self, name: &str) -> Result<Option<ProfileRecord>> {
-        Ok(sqlx::query_as::<_, ProfileRecord>("SELECT * FROM profiles WHERE name = ?")
+    pub async fn get_generator(&self, name: &str) -> Result<Option<GeneratorRecord>> {
+        Ok(sqlx::query_as::<_, GeneratorRecord>("SELECT * FROM generators WHERE name = ?")
             .bind(name)
             .fetch_optional(&self.pool)
             .await?)
     }
 
-    pub async fn list_profiles(&self) -> Result<Vec<ProfileRecord>> {
-        Ok(sqlx::query_as::<_, ProfileRecord>("SELECT * FROM profiles ORDER BY builtin DESC, name")
+    pub async fn list_generators(&self) -> Result<Vec<GeneratorRecord>> {
+        Ok(sqlx::query_as::<_, GeneratorRecord>("SELECT * FROM generators ORDER BY builtin DESC, name")
             .fetch_all(&self.pool)
             .await?)
     }
 
-    pub async fn delete_profile(&self, name: &str) -> Result<bool> {
-        let result = sqlx::query("DELETE FROM profiles WHERE name = ? AND builtin = 0")
+    pub async fn delete_generator(&self, name: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM generators WHERE name = ? AND builtin = 0")
             .bind(name)
             .execute(&self.pool)
             .await?;

@@ -1,5 +1,5 @@
 pub mod kv;
-pub mod profiles;
+pub mod generators;
 pub mod types;
 
 use std::collections::HashMap;
@@ -11,10 +11,10 @@ use types::OriginOp;
 /// Declarative workload profile for origin dataset generation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateParams {
-    /// Generation profile name. Use a predefined profile ("basic-kv", "kv-cas",
+    /// Generator name. Use a predefined generator ("basic-kv", "kv-cas",
     /// "kv-ephemeral", "kv-secondary-index", "kv-sequence", "kv-full")
     /// or "custom" with explicit workload weights.
-    pub profile: String,
+    pub generator: String,
 
     /// Total number of operations to generate.
     pub ops: usize,
@@ -118,10 +118,10 @@ fn default_index_key_count() -> usize { 50 }
 impl Default for GenerateParams {
     fn default() -> Self {
         Self {
-            profile: "basic-kv".to_string(),
+            generator: "basic-kv".to_string(),
             ops: 1000,
             key_space: KeySpaceConfig::default(),
-            workload: HashMap::new(), // loaded from profile
+            workload: HashMap::new(), // loaded from generator definition
             fence_every: default_fence_every(),
             seed: default_seed(),
             value: ValueConfig::default(),
@@ -131,12 +131,12 @@ impl Default for GenerateParams {
 }
 
 impl GenerateParams {
-    /// Resolve the workload: if empty, load from predefined profile.
+    /// Resolve the workload: if empty, load from generator definition.
     pub fn resolved_workload(&self) -> HashMap<String, f64> {
         if !self.workload.is_empty() {
             return self.workload.clone();
         }
-        profiles::get_profile(&self.profile)
+        generators::get_generator(&self.generator)
     }
 
     /// Normalized write weights from the resolved workload.

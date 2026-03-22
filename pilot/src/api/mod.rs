@@ -3,7 +3,7 @@ pub mod error;
 pub mod health;
 pub mod hypothesis;
 pub mod models;
-pub mod profiles;
+pub mod generators;
 
 use axum::routing::{delete, get, post};
 use axum::Router;
@@ -32,11 +32,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/adapters", get(adapters::list))
         .route("/api/adapters/{id}", get(adapters::get_one))
         .route("/api/adapters/{id}", delete(adapters::delete))
-        // Profiles
-        .route("/api/profiles", get(profiles::list))
-        .route("/api/profiles", post(profiles::create))
-        .route("/api/profiles/{name}", get(profiles::get_one))
-        .route("/api/profiles/{name}", delete(profiles::delete))
+        // Generators
+        .route("/api/generators", get(generators::list))
+        .route("/api/generators", post(generators::create))
+        .route("/api/generators/{name}", get(generators::get_one))
+        .route("/api/generators/{name}", delete(generators::delete))
         // Health
         .route("/health", get(health::health))
         .route("/metrics", get(health::metrics))

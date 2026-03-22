@@ -170,13 +170,13 @@ pub trait ReferenceModel: Send + Sync {
 
 /// Create a reference model backed by RocksDB.
 pub fn create_reference(
-    profile: &str,
+    generator_name: &str,
     rocks: RocksStore,
     hypothesis_id: String,
 ) -> Box<dyn ReferenceModel> {
-    match profile {
-        "basic-kv" => Box::new(kv::BasicKvReference::new(rocks, hypothesis_id)),
+    // All KV-family generators use the same reference model
+    match generator_name {
         "basic-streaming" => Box::new(streaming::BasicStreamingReference::new()),
-        _ => panic!("unsupported profile: {profile}"),
+        _ => Box::new(kv::BasicKvReference::new(rocks, hypothesis_id)),
     }
 }
