@@ -67,7 +67,7 @@ export default function RunDetailPage({
           if (ev.run_id === runId || !ev.run_id) parsed.push(ev);
         } catch { /* skip */ }
       }
-      setEvents(parsed);
+      setEvents(parsed.slice(-200));
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to load");
     }
