@@ -3,6 +3,14 @@ use serde::Serialize;
 
 use crate::reference::{CheckpointFailure, ResponseFailure};
 
+#[derive(Debug, Clone, Serialize)]
+pub struct OpRecord {
+    pub op_id: String,
+    pub op_type: String,
+    pub payload: serde_json::Value,
+    pub status: String,
+}
+
 /// All event types written to events.jsonl.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -50,13 +58,10 @@ pub enum Event {
         actual: String,
         timestamp: String,
     },
-    OpExecuted {
+    OperationBatch {
         run_id: String,
         batch_id: String,
-        op_id: String,
-        op_type: String,
-        payload: serde_json::Value,
-        status: String,
+        ops: Vec<OpRecord>,
         timestamp: String,
     },
     CheckpointStarted {
@@ -99,14 +104,11 @@ impl Event {
         Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
     }
 
-    pub fn op_executed(run_id: &str, batch_id: &str, op_id: &str, op_type: &str, payload: serde_json::Value, status: &str) -> Self {
-        Event::OpExecuted {
+    pub fn operation_batch(run_id: &str, batch_id: &str, ops: Vec<OpRecord>) -> Self {
+        Event::OperationBatch {
             run_id: run_id.to_string(),
             batch_id: batch_id.to_string(),
-            op_id: op_id.to_string(),
-            op_type: op_type.to_string(),
-            payload,
-            status: status.to_string(),
+            ops,
             timestamp: Self::now(),
         }
     }

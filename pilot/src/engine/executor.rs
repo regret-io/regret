@@ -213,27 +213,31 @@ impl Executor {
                             return Ok(StopReason::Error(e.to_string()));
                         }
                     };
-                    // Log each op result
-                    for (op, res) in batch.iter().zip(results.iter()) {
-                        self.emit_event(Event::op_executed(
-                            &self.run_id, &batch_id, &op.id,
-                            &op_type_str(&op.kind),
-                            op_payload(&op.kind),
-                            &res.status,
-                        ));
-                    }
+                    // Log the batch with results
+                    let op_records: Vec<super::events::OpRecord> = batch.iter().zip(results.iter())
+                        .map(|(op, res)| super::events::OpRecord {
+                            op_id: op.id.clone(),
+                            op_type: op_type_str(&op.kind),
+                            payload: op_payload(&op.kind),
+                            status: res.status.clone(),
+                        })
+                        .collect();
+                    self.emit_event(Event::operation_batch(&self.run_id, &batch_id, op_records));
+
                     let response = AdapterBatchResponse { batch_id: batch_id.clone(), results };
                     self.reference.process_response(batch, &response, &self.tolerance)
                 } else {
                     let mock = self.build_mock_results(batch);
-                    for (op, res) in batch.iter().zip(mock.iter()) {
-                        self.emit_event(Event::op_executed(
-                            &self.run_id, &batch_id, &op.id,
-                            &op_type_str(&op.kind),
-                            op_payload(&op.kind),
-                            &res.status,
-                        ));
-                    }
+                    let op_records: Vec<super::events::OpRecord> = batch.iter().zip(mock.iter())
+                        .map(|(op, res)| super::events::OpRecord {
+                            op_id: op.id.clone(),
+                            op_type: op_type_str(&op.kind),
+                            payload: op_payload(&op.kind),
+                            status: res.status.clone(),
+                        })
+                        .collect();
+                    self.emit_event(Event::operation_batch(&self.run_id, &batch_id, op_records));
+
                     let response = AdapterBatchResponse { batch_id: batch_id.clone(), results: mock };
                     let _ = self.reference.process_response(batch, &response, &self.tolerance);
                     vec![]
