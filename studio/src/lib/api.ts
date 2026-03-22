@@ -143,6 +143,23 @@ export async function downloadBundle(id: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+export async function updateHypothesis(
+  id: string,
+  body: {
+    name: string;
+    generator: string;
+    adapter?: string;
+    adapter_addr?: string;
+    duration?: string;
+    tolerance?: Record<string, unknown>;
+  }
+): Promise<Hypothesis> {
+  return request<Hypothesis>(`/api/hypothesis/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
 // --- Generators ---
 
 export async function listGenerators(): Promise<Generator[]> {
