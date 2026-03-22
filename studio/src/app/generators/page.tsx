@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useEffect, useState, useCallback } from "react";
 import {
   Table,
@@ -86,7 +87,7 @@ export default function GeneratorsPage() {
       setWeights({});
       setDialogOpen(false);
       load();
-    } catch {
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
       // error
     } finally {
       setSubmitting(false);

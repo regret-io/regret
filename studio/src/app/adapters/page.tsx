@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useEffect, useState, useCallback } from "react";
 import {
   Table,
@@ -53,7 +54,7 @@ export default function AdaptersPage() {
       let env: Record<string, string> = {};
       try {
         env = JSON.parse(envJson);
-      } catch {
+      } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
         // keep default
       }
       await createAdapter({ name, image, env });
@@ -62,7 +63,7 @@ export default function AdaptersPage() {
       setEnvJson("{}");
       setDialogOpen(false);
       load();
-    } catch {
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
       // error
     } finally {
       setSubmitting(false);

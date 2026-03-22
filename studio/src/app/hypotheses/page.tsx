@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -81,7 +82,7 @@ export default function HypothesesPage() {
       if (toleranceJson.trim()) {
         try {
           tolerance = JSON.parse(toleranceJson);
-        } catch {
+        } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
           // keep undefined
         }
       }
@@ -101,7 +102,7 @@ export default function HypothesesPage() {
       setToleranceJson("");
       setDialogOpen(false);
       load();
-    } catch {
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
       // error handling
     } finally {
       setSubmitting(false);
@@ -117,7 +118,7 @@ export default function HypothesesPage() {
         await startRun(h.id);
       }
       load();
-    } catch {
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
       // error
     } finally {
       setActionLoading(null);

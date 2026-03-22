@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useEffect, useState, useCallback, useRef, use } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -108,13 +109,13 @@ export default function HypothesisDetailPage({
           if (!trimmed) continue;
           try {
             parsed.push(JSON.parse(trimmed));
-          } catch {
+          } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
             // skip malformed lines
           }
         }
       }
       setEvents(parsed);
-    } catch {
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
       // API error
     } finally {
       setLoading(false);
@@ -134,7 +135,7 @@ export default function HypothesisDetailPage({
           if (s.status !== "running") {
             loadData();
           }
-        } catch {
+        } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
           // ignore
         }
       }, 2000);
@@ -152,7 +153,7 @@ export default function HypothesisDetailPage({
     try {
       await startRun(id);
       loadData();
-    } catch {
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
       // error
     } finally {
       setSubmitting(false);
@@ -163,7 +164,7 @@ export default function HypothesisDetailPage({
     try {
       await stopRun(id);
       loadData();
-    } catch {
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
       // error
     }
   }
@@ -171,7 +172,7 @@ export default function HypothesisDetailPage({
   async function handleDownload() {
     try {
       await downloadBundle(id);
-    } catch {
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : "Unknown error"; toast.error(msg);
       // error
     }
   }
