@@ -40,7 +40,7 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
         <div>
           <p className="px-2 mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-            Correctness
+            Hypotheses
           </p>
           <div className="space-y-0.5">
             {correctnessLinks.map(({ href, label, icon: Icon }) => {
