@@ -60,6 +60,30 @@ pub async fn get_one(State(state): State<AppState>, Path(id): Path<String>) -> R
     Ok(Json(to_response(&h)))
 }
 
+pub async fn update(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<CreateHypothesisRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.sqlite.get_hypothesis(&id).await?
+        .ok_or_else(|| ApiError::NotFound(format!("hypothesis {id} not found")))?;
+
+    if state.sqlite.get_generator(&req.generator).await?.is_none() {
+        return Err(ApiError::BadRequest(format!("unknown generator: {}", req.generator)));
+    }
+
+    let tolerance_json = req.tolerance.as_ref().map(|t| serde_json::to_string(t)).transpose()
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    let hypothesis = state.sqlite.update_hypothesis(
+        &id, &req.name, &req.generator,
+        req.adapter.as_deref(), req.adapter_addr.as_deref(),
+        req.duration.as_deref(), tolerance_json.as_deref(),
+    ).await?.ok_or_else(|| ApiError::Internal(anyhow::anyhow!("update failed")))?;
+
+    Ok(Json(to_response(&hypothesis)))
+}
+
 pub async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Result<impl IntoResponse, ApiError> {
     if let Some(manager) = state.managers.get(&id).await {
         let mut mgr = manager.lock().await;

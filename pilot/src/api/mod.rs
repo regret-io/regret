@@ -16,6 +16,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/hypothesis", post(hypothesis::create))
         .route("/api/hypothesis", get(hypothesis::list))
         .route("/api/hypothesis/{id}", get(hypothesis::get_one))
+        .route("/api/hypothesis/{id}", put(hypothesis::update))
         .route("/api/hypothesis/{id}", delete(hypothesis::delete))
         // Run control
         .route("/api/hypothesis/{id}/run", post(hypothesis::start_run))  // no body needed — config on hypothesis

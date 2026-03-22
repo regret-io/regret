@@ -75,10 +75,7 @@ impl HypothesisManager {
             .take()
             .ok_or_else(|| anyhow::anyhow!("reference model not available"))?;
 
-        let run_id = format!(
-            "run-{}",
-            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
-        );
+        let run_id = format!("run-{}", uuid::Uuid::now_v7());
         let cancel = CancellationToken::new();
         let progress = Arc::new(RwLock::new(ProgressInfo::default()));
 

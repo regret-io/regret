@@ -150,6 +150,24 @@ impl SqliteStore {
         Ok(result.rows_affected() > 0)
     }
 
+    pub async fn update_hypothesis(
+        &self,
+        id: &str,
+        name: &str,
+        generator: &str,
+        adapter: Option<&str>,
+        adapter_addr: Option<&str>,
+        duration: Option<&str>,
+        tolerance: Option<&str>,
+    ) -> Result<Option<Hypothesis>> {
+        sqlx::query(
+            "UPDATE hypotheses SET name = ?, generator = ?, adapter = ?, adapter_addr = ?, duration = ?, tolerance = ? WHERE id = ?",
+        )
+        .bind(name).bind(generator).bind(adapter).bind(adapter_addr).bind(duration).bind(tolerance).bind(id)
+        .execute(&self.pool).await?;
+        self.get_hypothesis(id).await
+    }
+
     pub async fn update_hypothesis_status(&self, id: &str, status: &str) -> Result<()> {
         sqlx::query("UPDATE hypotheses SET status = ? WHERE id = ?")
             .bind(status)
