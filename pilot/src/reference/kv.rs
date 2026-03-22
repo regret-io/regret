@@ -1,13 +1,15 @@
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::storage::rocks::RocksStore;
+use crate::types::OpType;
 
 use super::{
-    AdapterBatchResponse, AdapterOpResult, CheckpointFailure, OpKind, Operation, RangeRecord,
-    RecordState, ReferenceModel, ResponseFailure, Tolerance,
+    AdapterBatchResponse, AdapterOpResult, CheckpointFailure, OpKind, OpStatus, Operation,
+    RangeRecord, RecordState, ReferenceModel, ResponseFailure, Tolerance,
 };
 
 /// Persisted KV record stored in RocksDB state:{key}.
@@ -118,33 +120,35 @@ impl BasicKvReference {
     ) -> Option<ResponseFailure> {
         let ignore_version = Self::should_ignore_field("metadata.version_id", tolerance);
 
+        let parsed_status = OpStatus::from_str(&result.status).ok();
+
         match &op.kind {
             OpKind::Get { key } => {
                 let rec = self.get_record(key).filter(|r| r.value.is_some());
                 match rec {
                     None => {
-                        if result.status != "not_found" {
+                        if parsed_status != Some(OpStatus::NotFound) {
                             return Some(ResponseFailure {
                                 op_id: op.id.clone(),
-                                op: "get".to_string(),
-                                expected: "status=not_found".to_string(),
+                                op: OpType::Get.to_string(),
+                                expected: format!("status={}", OpStatus::NotFound),
                                 actual: format!("status={}", result.status),
                             });
                         }
                     }
                     Some(r) => {
-                        if result.status != "ok" {
+                        if parsed_status != Some(OpStatus::Ok) {
                             return Some(ResponseFailure {
                                 op_id: op.id.clone(),
-                                op: "get".to_string(),
-                                expected: "status=ok".to_string(),
+                                op: OpType::Get.to_string(),
+                                expected: format!("status={}", OpStatus::Ok),
                                 actual: format!("status={}", result.status),
                             });
                         }
                         if result.value.as_ref() != r.value.as_ref() {
                             return Some(ResponseFailure {
                                 op_id: op.id.clone(),
-                                op: "get".to_string(),
+                                op: OpType::Get.to_string(),
                                 expected: format!("value={:?}", r.value),
                                 actual: format!("value={:?}", result.value),
                             });
@@ -154,7 +158,7 @@ impl BasicKvReference {
                                 if actual_vid != r.version_id {
                                     return Some(ResponseFailure {
                                         op_id: op.id.clone(),
-                                        op: "get".to_string(),
+                                        op: OpType::Get.to_string(),
                                         expected: format!("version_id={}", r.version_id),
                                         actual: format!("version_id={actual_vid}"),
                                     });
@@ -191,7 +195,7 @@ impl BasicKvReference {
                     if actual_records.len() != expected.len() {
                         return Some(ResponseFailure {
                             op_id: op.id.clone(),
-                            op: "range_scan".to_string(),
+                            op: OpType::RangeScan.to_string(),
                             expected: format!("{} records", expected.len()),
                             actual: format!("{} records", actual_records.len()),
                         });
@@ -204,7 +208,7 @@ impl BasicKvReference {
                         if mismatch {
                             return Some(ResponseFailure {
                                 op_id: op.id.clone(),
-                                op: "range_scan".to_string(),
+                                op: OpType::RangeScan.to_string(),
                                 expected: format!("record[{i}]={{key={},value={}}}", exp.key, exp.value),
                                 actual: format!("record[{i}]={{key={},value={}}}", act.key, act.value),
                             });
@@ -230,7 +234,7 @@ impl BasicKvReference {
                     if actual_keys != &expected_keys {
                         return Some(ResponseFailure {
                             op_id: op.id.clone(),
-                            op: "list".to_string(),
+                            op: OpType::List.to_string(),
                             expected: format!("keys={expected_keys:?}"),
                             actual: format!("keys={actual_keys:?}"),
                         });
@@ -277,8 +281,10 @@ impl ReferenceModel for BasicKvReference {
                 continue;
             };
 
+            let result_status = OpStatus::from_str(&result.status).ok();
+
             if Self::is_write(&op.kind) {
-                if result.status == "ok" {
+                if result_status == Some(OpStatus::Ok) {
                     self.apply_write(op);
                 }
             } else if Self::is_read(&op.kind) {

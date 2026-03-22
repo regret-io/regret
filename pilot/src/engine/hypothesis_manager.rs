@@ -9,6 +9,7 @@ use tracing::{error, info, warn};
 
 use crate::reference::{ReferenceModel, Tolerance};
 use crate::storage::sqlite::AdapterRecord;
+use crate::types::HypothesisStatus;
 
 use super::SharedServices;
 use super::executor::{AdapterClient, ExecutionConfig, Executor, ProgressInfo, StopReason};
@@ -81,7 +82,7 @@ impl HypothesisManager {
         // Update hypothesis status
         self.shared
             .sqlite
-            .update_hypothesis_status(&self.hypothesis_id, "running")
+            .update_hypothesis_status(&self.hypothesis_id, &HypothesisStatus::Running.to_string())
             .await?;
         self.shared
             .sqlite

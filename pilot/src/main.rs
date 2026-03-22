@@ -8,6 +8,7 @@ mod grpc;
 mod reference;
 mod scheduler;
 mod storage;
+mod types;
 
 use std::net::SocketAddr;
 use std::path::Path;

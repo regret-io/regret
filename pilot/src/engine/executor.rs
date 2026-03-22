@@ -8,12 +8,13 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::reference::{
-    AdapterBatchResponse, AdapterOpResult, OpKind, Operation, RecordState, ReferenceModel,
-    Tolerance,
+    AdapterBatchResponse, AdapterOpResult, OpKind, OpStatus, Operation, RecordState,
+    ReferenceModel, Tolerance,
 };
 use crate::storage::files::FileStore;
 use crate::storage::rocks::RocksStore;
 use crate::storage::sqlite::{HypothesisResult, SqliteStore};
+use crate::types::{HypothesisStatus, OpType};
 
 use super::events::Event;
 
@@ -73,6 +74,15 @@ impl StopReason {
             StopReason::CheckpointFailed => "checkpoint_failed",
             StopReason::Stopped => "stopped",
             StopReason::Error(_) => "error",
+        }
+    }
+}
+
+impl std::fmt::Display for StopReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StopReason::Error(msg) => write!(f, "error: {msg}"),
+            other => f.write_str(other.as_str()),
         }
     }
 }
@@ -150,11 +160,11 @@ impl Executor {
 
         // Update hypothesis status
         let status = match &stop_reason {
-            StopReason::Completed if progress.failed_response_ops == 0 && progress.failed_checkpoints == 0 => "passed",
-            StopReason::Stopped => "stopped",
-            _ => "failed",
+            StopReason::Completed if progress.failed_response_ops == 0 && progress.failed_checkpoints == 0 => HypothesisStatus::Passed,
+            StopReason::Stopped => HypothesisStatus::Stopped,
+            _ => HypothesisStatus::Failed,
         };
-        if let Err(e) = self.sqlite.update_hypothesis_status(&self.hypothesis_id, status).await {
+        if let Err(e) = self.sqlite.update_hypothesis_status(&self.hypothesis_id, &status.to_string()).await {
             error!(error = %e, "failed to update hypothesis status");
         }
 
@@ -416,13 +426,13 @@ impl Executor {
             .filter(|op| !op.id.is_empty())
             .map(|op| {
                 let (status, op_type) = match &op.kind {
-                    OpKind::Put { .. } => ("ok", "put"),
-                    OpKind::Delete { .. } => ("ok", "delete"),
-                    OpKind::DeleteRange { .. } => ("ok", "delete_range"),
-                    OpKind::Cas { .. } => ("ok", "cas"),
-                    OpKind::Get { .. } => ("not_found", "get"),
-                    OpKind::RangeScan { .. } => ("ok", "range_scan"),
-                    OpKind::List { .. } => ("ok", "list"),
+                    OpKind::Put { .. } => (OpStatus::Ok, OpType::Put),
+                    OpKind::Delete { .. } => (OpStatus::Ok, OpType::Delete),
+                    OpKind::DeleteRange { .. } => (OpStatus::Ok, OpType::DeleteRange),
+                    OpKind::Cas { .. } => (OpStatus::Ok, OpType::Cas),
+                    OpKind::Get { .. } => (OpStatus::NotFound, OpType::Get),
+                    OpKind::RangeScan { .. } => (OpStatus::Ok, OpType::RangeScan),
+                    OpKind::List { .. } => (OpStatus::Ok, OpType::List),
                     OpKind::Fence => return None,
                 };
                 Some(AdapterOpResult {
@@ -431,8 +441,8 @@ impl Executor {
                     status: status.to_string(),
                     value: None,
                     version_id: None,
-                    records: if op_type == "range_scan" { Some(vec![]) } else { None },
-                    keys: if op_type == "list" { Some(vec![]) } else { None },
+                    records: if op_type == OpType::RangeScan { Some(vec![]) } else { None },
+                    keys: if op_type == OpType::List { Some(vec![]) } else { None },
                     deleted_count: None,
                     message: None,
                 })

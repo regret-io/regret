@@ -1,8 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
+use std::str::FromStr;
+
+use crate::types::OpType;
+
 use super::{
-    AdapterBatchResponse, CheckpointFailure, OpKind, Operation, RecordState, ReferenceModel,
-    ResponseFailure, Tolerance,
+    AdapterBatchResponse, CheckpointFailure, OpKind, OpStatus, Operation, RecordState,
+    ReferenceModel, ResponseFailure, Tolerance,
 };
 
 #[derive(Debug, Clone)]
@@ -65,7 +69,7 @@ impl ReferenceModel for BasicStreamingReference {
             };
 
             match &op.kind {
-                OpKind::Put { key, value } if result.status == "ok" => {
+                OpKind::Put { key, value } if OpStatus::from_str(&result.status).ok() == Some(OpStatus::Ok) => {
                     // Produce succeeded — record message
                     if let Some((topic, partition)) = Self::parse_topic_partition(key) {
                         let messages = self
@@ -103,7 +107,7 @@ impl ReferenceModel for BasicStreamingReference {
                                 if result.value.as_deref() != Some(&expected_msg.value) {
                                     failures.push(ResponseFailure {
                                         op_id: op.id.clone(),
-                                        op: "get".to_string(),
+                                        op: OpType::Get.to_string(),
                                         expected: format!("value={:?}", expected_msg.value),
                                         actual: format!("value={:?}", result.value),
                                     });

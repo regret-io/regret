@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::app_state::AppState;
 use crate::engine::executor::ExecutionConfig;
+use crate::types::HypothesisStatus;
 
 use super::error::ApiError;
 use super::models::*;
@@ -260,7 +261,7 @@ pub async fn start_run(
         Json(StartRunResponse {
             run_id,
             hypothesis_id: id,
-            status: "running".to_string(),
+            status: HypothesisStatus::Running.to_string(),
         }),
     ))
 }

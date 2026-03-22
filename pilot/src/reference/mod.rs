@@ -4,6 +4,7 @@ pub mod streaming;
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString};
 
 use crate::storage::rocks::RocksStore;
 
@@ -16,21 +17,13 @@ pub struct RecordState {
     pub metadata: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Display, EnumString)]
+#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum OpStatus {
     Ok,
     NotFound,
     VersionMismatch,
-}
-
-impl OpStatus {
-    pub fn as_str(&self) -> &str {
-        match self {
-            OpStatus::Ok => "ok",
-            OpStatus::NotFound => "not_found",
-            OpStatus::VersionMismatch => "version_mismatch",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
