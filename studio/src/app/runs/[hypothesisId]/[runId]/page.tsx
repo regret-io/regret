@@ -214,35 +214,16 @@ export default function RunDetailPage({
       )}
 
       {tab === "events" && (
-        <div className="rounded-lg border border-zinc-800 overflow-hidden max-h-[500px] overflow-y-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-zinc-800 hover:bg-transparent">
-                <TableHead className="text-zinc-400 w-[180px]">Timestamp</TableHead>
-                <TableHead className="text-zinc-400 w-[160px]">Type</TableHead>
-                <TableHead className="text-zinc-400">Details</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {events.length === 0 ? (
-                <TableRow><TableCell colSpan={3} className="text-zinc-500 text-center py-8">No events</TableCell></TableRow>
-              ) : (
-                events.map((ev, i) => (
-                  <TableRow key={i} className="border-zinc-800">
-                    <TableCell className="font-mono text-xs text-zinc-500">
-                      {ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : "-"}
-                    </TableCell>
-                    <TableCell>
-                      <EventBadge type={ev.type} />
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-zinc-400 max-w-[400px] truncate">
-                      {eventDetails(ev)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+        <div className="rounded-lg border border-zinc-800 overflow-hidden max-h-[600px] overflow-y-auto">
+          {events.length === 0 ? (
+            <p className="text-zinc-500 text-center py-8 text-sm">No events</p>
+          ) : (
+            <div className="divide-y divide-zinc-800">
+              {events.map((ev, i) => (
+                <EventRow key={i} ev={ev} />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -260,6 +241,59 @@ function StatCard({ icon, label, value, highlight, color }: {
       <div className={`text-lg font-semibold font-mono ${color ?? "text-zinc-100"}`}>
         {value}
       </div>
+    </div>
+  );
+}
+
+function EventRow({ ev }: { ev: EventItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const expandable = ev.type === "OperationBatch" || ev.type === "ResponseFailed";
+  const ops = ev.type === "OperationBatch" && Array.isArray(ev.ops)
+    ? ev.ops as Array<{op_id: string; op_type: string; payload: Record<string, unknown>; status: string}>
+    : null;
+
+  return (
+    <div>
+      <div
+        className={`flex items-center gap-3 px-3 py-2 text-xs ${expandable ? "cursor-pointer hover:bg-zinc-800/50" : ""} ${ev.type === "ResponseFailed" ? "bg-red-500/5" : ""}`}
+        onClick={() => expandable && setExpanded(!expanded)}
+      >
+        <span className="font-mono text-zinc-500 w-[75px] shrink-0">
+          {ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : "-"}
+        </span>
+        <span className="w-[130px] shrink-0"><EventBadge type={ev.type} /></span>
+        <span className="font-mono text-zinc-400 truncate flex-1">
+          {eventSummary(ev)}
+        </span>
+        {expandable && (
+          <span className="text-zinc-600 shrink-0">{expanded ? "▼" : "▶"}</span>
+        )}
+      </div>
+      {expanded && ev.type === "OperationBatch" && ops && (
+        <div className="bg-zinc-900/50 border-t border-zinc-800 px-4 py-2 space-y-1">
+          {ops.map((op, j) => (
+            <div key={j} className="flex items-center gap-2 font-mono text-xs">
+              <span className="text-zinc-500 w-[70px]">{op.op_id}</span>
+              <span className={`w-[100px] ${op.status === "ok" ? "text-emerald-400" : op.status === "not_found" ? "text-amber-400" : "text-red-400"}`}>
+                {op.op_type}
+              </span>
+              <span className="text-zinc-400 flex-1 truncate">
+                {Object.entries(op.payload).map(([k, v]) => `${k}=${v}`).join(" ")}
+              </span>
+              <span className={`w-[80px] text-right ${op.status === "ok" ? "text-emerald-400" : op.status === "not_found" ? "text-amber-400" : "text-red-400"}`}>
+                {op.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {expanded && ev.type === "ResponseFailed" && (
+        <div className="bg-red-500/5 border-t border-red-800/30 px-4 py-2 space-y-1 font-mono text-xs">
+          <div className="text-zinc-400">Op: <span className="text-zinc-200">{ev.op_id} ({ev.op})</span></div>
+          <div className="text-emerald-400">Expected: <span className="text-zinc-200">{String(ev.expected)}</span></div>
+          <div className="text-red-400">Actual: <span className="text-zinc-200">{String(ev.actual)}</span></div>
+        </div>
+      )}
     </div>
   );
 }
@@ -284,7 +318,7 @@ function EventBadge({ type }: { type: string }) {
   );
 }
 
-function eventDetails(ev: EventItem): string {
+function eventSummary(ev: EventItem): string {
   const parts: string[] = [];
   if (ev.batch_id) parts.push(`batch=${ev.batch_id}`);
 
