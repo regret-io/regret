@@ -251,7 +251,8 @@ impl BasicKvGenerator {
     }
 
     fn gen_list(&mut self, id: String) -> OriginOp {
-        OriginOp::list(id, self.params.key_space.prefix.clone())
+        let ks = &self.params.key_space;
+        OriginOp::list(id, ks.prefix.clone(), format!("{}\u{ffff}", ks.prefix))
     }
 
     fn gen_indexed_get(&mut self, id: String) -> OriginOp {

@@ -110,7 +110,7 @@ pub enum OpKind {
     Get { key: String },
     Delete { key: String },
     DeleteRange { start: String, end: String },
-    List { prefix: String },
+    List { start: String, end: String },
     RangeScan { start: String, end: String },
 
     // CAS

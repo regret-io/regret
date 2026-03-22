@@ -64,8 +64,9 @@ impl Serialize for OperationOp {
                 map.serialize_entry("start", start)?;
                 map.serialize_entry("end", end)?;
             }
-            OpFields::List { prefix } => {
-                map.serialize_entry("prefix", prefix)?;
+            OpFields::List { start, end } => {
+                map.serialize_entry("start", start)?;
+                map.serialize_entry("end", end)?;
             }
             OpFields::EphemeralPut { key, value } => {
                 map.serialize_entry("key", key)?;
@@ -108,7 +109,7 @@ pub enum OpFields {
     Get { key: String },
     Delete { key: String },
     DeleteRange { start: String, end: String },
-    List { prefix: String },
+    List { start: String, end: String },
     RangeScan { start: String, end: String },
 
     // CAS
@@ -148,8 +149,8 @@ impl OriginOp {
         OriginOp::Operation(OperationOp { id, op: "delete_range".to_string(), fields: OpFields::DeleteRange { start, end } })
     }
 
-    pub fn list(id: String, prefix: String) -> Self {
-        OriginOp::Operation(OperationOp { id, op: "list".to_string(), fields: OpFields::List { prefix } })
+    pub fn list(id: String, start: String, end: String) -> Self {
+        OriginOp::Operation(OperationOp { id, op: "list".to_string(), fields: OpFields::List { start, end } })
     }
 
     pub fn range_scan(id: String, start: String, end: String) -> Self {

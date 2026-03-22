@@ -234,10 +234,10 @@ impl BasicKvReference {
                 }
                 None
             }
-            OpKind::List { prefix } => {
+            OpKind::List { start, end } => {
                 let mut expected_keys: Vec<String> = self.touched_keys
                     .iter()
-                    .filter(|k| k.starts_with(prefix.as_str()))
+                    .filter(|k| k.as_str() >= start.as_str() && k.as_str() < end.as_str())
                     .filter(|k| {
                         self.get_record(k)
                             .map(|r| r.value.is_some())

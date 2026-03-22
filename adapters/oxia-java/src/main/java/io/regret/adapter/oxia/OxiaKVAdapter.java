@@ -103,7 +103,7 @@ public class OxiaKVAdapter implements Adapter {
                 }
                 case LIST -> {
                     var p = ListPayload.fromBytes(op.payload());
-                    var keys = client.list(p.prefix(), p.prefix() + "\uffff");
+                    var keys = client.list(p.start(), p.end());
                     yield OpResult.list(op.opId(), keys);
                 }
                 case EPHEMERAL_PUT -> {

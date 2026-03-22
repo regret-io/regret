@@ -106,7 +106,7 @@ fn serialize_op(kind: &OpKind) -> (String, Vec<u8>) {
         OpKind::Get { key } => ("get".into(), serde_json::to_vec(&serde_json::json!({"key": key})).unwrap()),
         OpKind::Delete { key } => ("delete".into(), serde_json::to_vec(&serde_json::json!({"key": key})).unwrap()),
         OpKind::DeleteRange { start, end } => ("delete_range".into(), serde_json::to_vec(&serde_json::json!({"start": start, "end": end})).unwrap()),
-        OpKind::List { prefix } => ("list".into(), serde_json::to_vec(&serde_json::json!({"prefix": prefix})).unwrap()),
+        OpKind::List { start, end } => ("list".into(), serde_json::to_vec(&serde_json::json!({"start": start, "end": end})).unwrap()),
         OpKind::RangeScan { start, end } => ("range_scan".into(), serde_json::to_vec(&serde_json::json!({"start": start, "end": end})).unwrap()),
         OpKind::Cas { key, expected_version_id, new_value } => ("cas".into(), serde_json::to_vec(&serde_json::json!({"key": key, "expected_version_id": expected_version_id, "new_value": new_value})).unwrap()),
         OpKind::EphemeralPut { key, value } => ("ephemeral_put".into(), serde_json::to_vec(&serde_json::json!({"key": key, "value": value})).unwrap()),

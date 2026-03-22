@@ -2,7 +2,7 @@ package io.regret.sdk.payload;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-public record ListPayload(String prefix) {
+public record ListPayload(String start, String end) {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
