@@ -34,11 +34,14 @@ impl BasicKvGenerator {
     pub fn generate(mut self) -> Vec<OriginOp> {
         let mut ops = Vec::new();
         let mut writes_since_fence = 0;
+        // Track keys touched in current write segment to detect conflicts
+        let mut segment_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         while self.op_counter < self.params.ops {
             if writes_since_fence >= self.params.fence_every && self.op_counter < self.params.ops {
                 ops.push(OriginOp::fence());
                 writes_since_fence = 0;
+                segment_keys.clear();
 
                 let read_count = self.compute_read_count();
                 for _ in 0..read_count {
@@ -50,7 +53,21 @@ impl BasicKvGenerator {
                 continue;
             }
 
-            ops.push(self.gen_write_op());
+            // Generate the write op, check for key conflicts
+            let write_op = self.gen_write_op();
+            let touched = self.keys_touched_by(&write_op);
+
+            // If any key in this op was already touched in this segment, insert a fence first
+            if touched.iter().any(|k| segment_keys.contains(k)) {
+                ops.push(OriginOp::fence());
+                segment_keys.clear();
+                writes_since_fence = 0;
+            }
+
+            for k in &touched {
+                segment_keys.insert(k.clone());
+            }
+            ops.push(write_op);
             writes_since_fence += 1;
         }
 
@@ -133,6 +150,27 @@ impl BasicKvGenerator {
         for k in to_remove { self.versions.remove(&k); }
 
         OriginOp::delete_range(id, start, end)
+    }
+
+    /// Return all keys that this op touches (for conflict detection).
+    fn keys_touched_by(&self, op: &OriginOp) -> Vec<String> {
+        match op {
+            OriginOp::Operation(o) => match &o.fields {
+                super::types::OpFields::Put { key, .. } => vec![key.clone()],
+                super::types::OpFields::Delete { key } => vec![key.clone()],
+                super::types::OpFields::DeleteRange { .. } => {
+                    // delete_range conflicts with any key in the segment,
+                    // so return all known keys to force a fence
+                    self.versions.keys().cloned().collect()
+                }
+                super::types::OpFields::Cas { key, .. } => vec![key.clone()],
+                super::types::OpFields::EphemeralPut { key, .. } => vec![key.clone()],
+                super::types::OpFields::IndexedPut { key, .. } => vec![key.clone()],
+                super::types::OpFields::SequencePut { prefix, .. } => vec![prefix.clone()],
+                _ => vec![],
+            },
+            _ => vec![],
+        }
     }
 
     fn gen_cas(&mut self, id: String) -> OriginOp {
