@@ -257,7 +257,8 @@ export default function RunsPage() {
                 return (
                 <TableRow
                   key={`${r.hypothesis_id}-${r.run_id}`}
-                  className={`border-zinc-800 ${isRunning ? "relative" : ""}`}
+                  className={`border-zinc-800 cursor-pointer hover:bg-zinc-800/50 ${isRunning ? "relative" : ""}`}
+                  onClick={() => window.location.href = `/runs/${r.hypothesis_id}/${r.run_id}`}
                 >
                   {isRunning && (
                     <td colSpan={9} className="absolute bottom-0 left-0 right-0 h-0.5 p-0 border-0">
