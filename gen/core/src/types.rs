@@ -1,11 +1,24 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeMap};
 
 /// A single line in the origin JSONL file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum OriginOp {
     Fence(FenceOp),
     Operation(OperationOp),
+}
+
+impl Serialize for OriginOp {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            OriginOp::Fence(_) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("type", "fence")?;
+                map.end()
+            }
+            OriginOp::Operation(op) => op.serialize(serializer),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,43 +27,88 @@ pub struct FenceOp {
     pub typ: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct OperationOp {
     pub id: String,
     pub op: String,
-    #[serde(flatten)]
     pub fields: OpFields,
 }
 
+impl Serialize for OperationOp {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Flatten: {"id":..., "op":..., ...fields}
+        match &self.fields {
+            OpFields::Put { key, value } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("id", &self.id)?;
+                map.serialize_entry("op", &self.op)?;
+                map.serialize_entry("key", key)?;
+                map.serialize_entry("value", value)?;
+                map.end()
+            }
+            OpFields::Delete { key } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("id", &self.id)?;
+                map.serialize_entry("op", &self.op)?;
+                map.serialize_entry("key", key)?;
+                map.end()
+            }
+            OpFields::DeleteRange { start, end } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("id", &self.id)?;
+                map.serialize_entry("op", &self.op)?;
+                map.serialize_entry("start", start)?;
+                map.serialize_entry("end", end)?;
+                map.end()
+            }
+            OpFields::Cas {
+                key,
+                expected_version_id,
+                new_value,
+            } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("id", &self.id)?;
+                map.serialize_entry("op", &self.op)?;
+                map.serialize_entry("key", key)?;
+                map.serialize_entry("expected_version_id", expected_version_id)?;
+                map.serialize_entry("new_value", new_value)?;
+                map.end()
+            }
+            OpFields::Get { key } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("id", &self.id)?;
+                map.serialize_entry("op", &self.op)?;
+                map.serialize_entry("key", key)?;
+                map.end()
+            }
+            OpFields::RangeScan { start, end } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("id", &self.id)?;
+                map.serialize_entry("op", &self.op)?;
+                map.serialize_entry("start", start)?;
+                map.serialize_entry("end", end)?;
+                map.end()
+            }
+            OpFields::List { prefix } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("id", &self.id)?;
+                map.serialize_entry("op", &self.op)?;
+                map.serialize_entry("prefix", prefix)?;
+                map.end()
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
 pub enum OpFields {
-    Put {
-        key: String,
-        value: String,
-    },
-    Delete {
-        key: String,
-    },
-    DeleteRange {
-        start: String,
-        end: String,
-    },
-    Cas {
-        key: String,
-        expected_version_id: u64,
-        new_value: String,
-    },
-    Get {
-        key: String,
-    },
-    RangeScan {
-        start: String,
-        end: String,
-    },
-    List {
-        prefix: String,
-    },
+    Put { key: String, value: String },
+    Delete { key: String },
+    DeleteRange { start: String, end: String },
+    Cas { key: String, expected_version_id: u64, new_value: String },
+    Get { key: String },
+    RangeScan { start: String, end: String },
+    List { prefix: String },
 }
 
 impl OriginOp {
