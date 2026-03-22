@@ -256,20 +256,56 @@ impl Executor {
         let duration_ms = stream_start.elapsed().as_millis() as u64;
         self.emit_event(Event::batch_completed(&self.run_id, "stream", duration_ms));
 
-        // 7. Reference processes results: writes update state, reads verify
+        // 7. Reference processes results in fence-delimited segments.
+        //    Writes before a fence are applied, reads after a fence are verified.
         if let Some(results) = &adapter_results {
-            // Build a map from op_id -> result for the reference
-            let response = crate::reference::AdapterBatchResponse {
-                batch_id: "stream".to_string(),
-                results: results.clone(),
-            };
-            let failures = self.reference.process_response(&all_ops, &response, &self.tolerance);
-            if !failures.is_empty() {
+            // Build result lookup by op_id
+            let result_map: HashMap<String, &AdapterOpResult> = results.iter()
+                .map(|r| (r.op_id.clone(), r))
+                .collect();
+
+            // Split ops at fence boundaries, process each segment
+            let mut segment: Vec<Operation> = Vec::new();
+            let mut total_failures = Vec::new();
+
+            for op in &all_ops {
+                if matches!(op.kind, OpKind::Fence) {
+                    // Process accumulated segment
+                    if !segment.is_empty() {
+                        let seg_results: Vec<AdapterOpResult> = segment.iter()
+                            .filter_map(|o| result_map.get(&o.id).map(|r| (*r).clone()))
+                            .collect();
+                        let response = crate::reference::AdapterBatchResponse {
+                            batch_id: "stream".to_string(),
+                            results: seg_results,
+                        };
+                        let failures = self.reference.process_response(&segment, &response, &self.tolerance);
+                        total_failures.extend(failures);
+                    }
+                    segment.clear();
+                } else {
+                    segment.push(op.clone());
+                }
+            }
+            // Process trailing segment
+            if !segment.is_empty() {
+                let seg_results: Vec<AdapterOpResult> = segment.iter()
+                    .filter_map(|o| result_map.get(&o.id).map(|r| (*r).clone()))
+                    .collect();
+                let response = crate::reference::AdapterBatchResponse {
+                    batch_id: "stream".to_string(),
+                    results: seg_results,
+                };
+                let failures = self.reference.process_response(&segment, &response, &self.tolerance);
+                total_failures.extend(failures);
+            }
+
+            if !total_failures.is_empty() {
                 let mut progress = self.progress.write().await;
-                progress.failed_response_ops += failures.len();
+                progress.failed_response_ops += total_failures.len();
                 drop(progress);
 
-                for failure in &failures {
+                for failure in &total_failures {
                     self.emit_event(Event::response_failed(&self.run_id, "stream", failure));
                 }
 
