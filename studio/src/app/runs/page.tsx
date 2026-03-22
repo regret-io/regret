@@ -252,11 +252,20 @@ export default function RunsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {runs.map((r) => (
+              {runs.map((r) => {
+                const isRunning = r.is_live && r.live_status === "running";
+                return (
                 <TableRow
                   key={`${r.hypothesis_id}-${r.run_id}`}
-                  className="border-zinc-800"
+                  className={`border-zinc-800 ${isRunning ? "relative" : ""}`}
                 >
+                  {isRunning && (
+                    <td colSpan={9} className="absolute bottom-0 left-0 right-0 h-0.5 p-0 border-0">
+                      <div className="h-full bg-blue-500/30 overflow-hidden">
+                        <div className="h-full bg-blue-500 animate-pulse" style={{ width: "100%" }} />
+                      </div>
+                    </td>
+                  )}
                   <TableCell>
                     <Link
                       href={`/templates/${r.hypothesis_id}`}
@@ -306,7 +315,8 @@ export default function RunsPage() {
                         : "-"}
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </div>
