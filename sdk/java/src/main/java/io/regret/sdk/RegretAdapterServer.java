@@ -47,9 +47,13 @@ public class RegretAdapterServer {
 
         LOG.info("Adapter gRPC server started on port {}", port);
 
-        // Register with pilot
+        // Register with pilot (best-effort — adapter runs regardless)
         String grpcAddr = getHostname() + ":" + port;
-        registerWithPilot(pilotAddr, hypothesisId, adapterName, grpcAddr);
+        try {
+            registerWithPilot(pilotAddr, hypothesisId, adapterName, grpcAddr);
+        } catch (Exception e) {
+            LOG.warn("Failed to register with pilot at {} — adapter is running, pilot can connect directly", pilotAddr, e);
+        }
 
         // Shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
