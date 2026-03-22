@@ -48,6 +48,8 @@ pub struct ProgressInfo {
     pub passed_checkpoints: usize,
     pub failed_checkpoints: usize,
     pub failed_response_ops: usize,
+    pub elapsed_secs: u64,
+    pub ops_per_sec: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,6 +238,9 @@ impl Executor {
                     let mut p = self.progress.write().await;
                     p.completed_ops += batch.len();
                     p.completed_batches += 1;
+                    let elapsed = run_start.elapsed().as_secs();
+                    p.elapsed_secs = elapsed;
+                    p.ops_per_sec = if elapsed > 0 { p.completed_ops as f64 / elapsed as f64 } else { 0.0 };
                 }
 
                 batch_counter += 1;

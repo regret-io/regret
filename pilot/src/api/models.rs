@@ -32,20 +32,6 @@ pub struct HypothesisListResponse {
     pub items: Vec<HypothesisResponse>,
 }
 
-// --- Origin ---
-
-#[derive(Debug, Serialize)]
-pub struct OriginUploadResponse {
-    pub hypothesis_id: String,
-    pub total_ops: usize,
-    pub total_fences: usize,
-}
-
-// --- Generate ---
-// GenerateRequest is just GenerateParams from the generator module.
-// Re-exported here so the API handler can deserialize directly.
-pub use crate::generator::GenerateParams as GenerateRequest;
-
 // --- Run Control ---
 
 #[derive(Debug, Deserialize)]

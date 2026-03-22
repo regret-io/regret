@@ -14,6 +14,11 @@ pub struct GrpcAdapterClient {
 }
 
 impl GrpcAdapterClient {
+    pub async fn cleanup_prefix(addr: &str, key_prefix: &str) -> Result<()> {
+        let client = Self::connect(addr).await?;
+        client.cleanup(key_prefix).await
+    }
+
     pub async fn connect(addr: &str) -> Result<Self> {
         let url = if addr.starts_with("http") { addr.to_string() } else { format!("http://{addr}") };
         let channel = Channel::from_shared(url)?.connect().await.context("failed to connect")?;

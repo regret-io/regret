@@ -36,16 +36,6 @@ impl FileStore {
         Ok(())
     }
 
-    pub fn write_origin(&self, id: &str, content: &[u8]) -> Result<()> {
-        let path = self.hypothesis_dir(id).join("origin.jsonl");
-        fs::write(&path, content).context(format!("failed to write {}", path.display()))?;
-        Ok(())
-    }
-
-    pub fn origin_exists(&self, id: &str) -> bool {
-        self.hypothesis_dir(id).join("origin.jsonl").exists()
-    }
-
     pub fn append_event(&self, id: &str, event_json: &str) -> Result<()> {
         let path = self.hypothesis_dir(id).join("events.jsonl");
         let mut file = fs::OpenOptions::new()
