@@ -131,7 +131,7 @@ public class RegretAdapterServer {
                         Regret.Operation protoOp = protoItem.getOp();
                         items.add(new Item.Op(new Operation(
                                 protoOp.getOpId(),
-                                protoOp.getOpType(),
+                                OpType.fromString(protoOp.getOpType()),
                                 protoOp.getPayload().toByteArray())));
                     }
                 }

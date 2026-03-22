@@ -1,3 +1,3 @@
 package io.regret.sdk;
 
-public record Operation(String opId, String opType, byte[] payload) {}
+public record Operation(String opId, OpType opType, byte[] payload) {}

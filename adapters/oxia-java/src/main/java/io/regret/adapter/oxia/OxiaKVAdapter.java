@@ -1,6 +1,7 @@
 package io.regret.adapter.oxia;
 
 import io.regret.sdk.*;
+import io.regret.sdk.OpType;
 import io.regret.sdk.payload.*;
 import io.streamnative.oxia.client.api.OxiaClientBuilder;
 import io.streamnative.oxia.client.api.GetResult;
@@ -45,6 +46,7 @@ public class OxiaKVAdapter implements Adapter {
 
     @Override
     public BatchResponse executeBatch(Batch batch) throws Exception {
+        LOG.info("executeBatch batchId={} traceId={} items={}", batch.batchId(), batch.traceId(), batch.items().size());
         List<OpResult> results = new ArrayList<>();
         List<CompletableFuture<OpResult>> pending = new ArrayList<>();
 
@@ -53,6 +55,7 @@ public class OxiaKVAdapter implements Adapter {
                 case Item.Op(Operation op) ->
                         pending.add(CompletableFuture.supplyAsync(() -> executeOp(op)));
                 case Item.Fence() -> {
+                    LOG.debug("  fence — waiting for {} pending ops", pending.size());
                     for (var f : pending) results.add(f.get());
                     pending.clear();
                 }
@@ -64,46 +67,48 @@ public class OxiaKVAdapter implements Adapter {
     }
 
     private OpResult executeOp(Operation op) {
+        LOG.debug("  op={} id={} payload={}", op.opType(), op.opId(),
+                op.payload() != null ? new String(op.payload(), StandardCharsets.UTF_8) : "null");
         try {
             return switch (op.opType()) {
-                case "put" -> {
+                case PUT -> {
                     var p = PutPayload.fromBytes(op.payload());
                     client.put(p.key(), p.value().getBytes(StandardCharsets.UTF_8));
-                    yield OpResult.ok(op.opId(), "put");
+                    yield OpResult.ok(op.opId(), OpType.PUT.value());
                 }
-                case "delete" -> {
+                case DELETE -> {
                     var p = DeletePayload.fromBytes(op.payload());
                     boolean existed = client.delete(p.key());
-                    yield existed ? OpResult.ok(op.opId(), "delete")
-                            : OpResult.notFound(op.opId(), "delete");
+                    yield existed ? OpResult.ok(op.opId(), OpType.DELETE.value())
+                            : OpResult.notFound(op.opId(), OpType.DELETE.value());
                 }
-                case "delete_range" -> {
+                case DELETE_RANGE -> {
                     var p = DeleteRangePayload.fromBytes(op.payload());
                     client.deleteRange(p.start(), p.end());
-                    yield OpResult.ok(op.opId(), "delete_range");
+                    yield OpResult.ok(op.opId(), OpType.DELETE_RANGE.value());
                 }
-                case "cas" -> {
+                case CAS -> {
                     var p = CasPayload.fromBytes(op.payload());
                     try {
                         client.put(p.key(), p.newValue().getBytes(StandardCharsets.UTF_8),
                                 Set.of(PutOption.IfVersionIdEquals(p.expectedVersionId())));
-                        yield OpResult.ok(op.opId(), "cas");
+                        yield OpResult.ok(op.opId(), OpType.CAS.value());
                     } catch (UnexpectedVersionIdException e) {
-                        yield OpResult.versionMismatch(op.opId(), "cas");
+                        yield OpResult.versionMismatch(op.opId(), OpType.CAS.value());
                     }
                 }
-                case "get" -> {
+                case GET -> {
                     var p = GetPayload.fromBytes(op.payload());
                     GetResult res = client.get(p.key());
                     if (res == null) {
-                        yield OpResult.notFound(op.opId(), "get");
+                        yield OpResult.notFound(op.opId(), OpType.GET.value());
                     } else {
                         yield OpResult.get(op.opId(),
                                 new String(res.getValue(), StandardCharsets.UTF_8),
                                 res.getVersion().versionId());
                     }
                 }
-                case "range_scan" -> {
+                case RANGE_SCAN -> {
                     var p = RangeScanPayload.fromBytes(op.payload());
                     var keys = client.list(p.start(), p.end());
                     var records = new ArrayList<OpResult.RangeScanRecord>();
@@ -117,35 +122,35 @@ public class OxiaKVAdapter implements Adapter {
                     }
                     yield OpResult.rangeScan(op.opId(), records);
                 }
-                case "list" -> {
+                case LIST -> {
                     var p = ListPayload.fromBytes(op.payload());
                     var keys = client.list(p.prefix(), p.prefix() + "\uffff");
                     yield OpResult.list(op.opId(), keys);
                 }
-                case "ephemeral_put" -> {
+                case EPHEMERAL_PUT -> {
                     var p = EphemeralPutPayload.fromBytes(op.payload());
                     client.put(p.key(), p.value().getBytes(StandardCharsets.UTF_8),
                             Set.of(PutOption.AsEphemeralRecord));
-                    yield OpResult.ok(op.opId(), "ephemeral_put");
+                    yield OpResult.ok(op.opId(), OpType.EPHEMERAL_PUT.value());
                 }
-                case "indexed_put" -> {
+                case INDEXED_PUT -> {
                     var p = IndexedPutPayload.fromBytes(op.payload());
                     client.put(p.key(), p.value().getBytes(StandardCharsets.UTF_8),
                             Set.of(PutOption.SecondaryIndex(p.indexName(), p.indexKey())));
-                    yield OpResult.ok(op.opId(), "indexed_put");
+                    yield OpResult.ok(op.opId(), OpType.INDEXED_PUT.value());
                 }
-                case "indexed_get" -> {
+                case INDEXED_GET -> {
                     var p = IndexedGetPayload.fromBytes(op.payload());
                     // GetOption does not support UseIndex; use list with UseIndex to
                     // resolve the primary key, then get the record by primary key.
                     var keys = client.list(p.indexKey(), p.indexKey() + "\0",
                             Set.of(ListOption.UseIndex(p.indexName())));
                     if (keys.isEmpty()) {
-                        yield OpResult.notFound(op.opId(), "indexed_get");
+                        yield OpResult.notFound(op.opId(), OpType.INDEXED_GET.value());
                     } else {
                         GetResult res = client.get(keys.get(0));
                         if (res == null) {
-                            yield OpResult.notFound(op.opId(), "indexed_get");
+                            yield OpResult.notFound(op.opId(), OpType.INDEXED_GET.value());
                         } else {
                             yield OpResult.get(op.opId(),
                                     new String(res.getValue(), StandardCharsets.UTF_8),
@@ -153,13 +158,13 @@ public class OxiaKVAdapter implements Adapter {
                         }
                     }
                 }
-                case "indexed_list" -> {
+                case INDEXED_LIST -> {
                     var p = IndexedListPayload.fromBytes(op.payload());
                     var keys = client.list(p.start(), p.end(),
                             Set.of(ListOption.UseIndex(p.indexName())));
                     yield OpResult.list(op.opId(), keys);
                 }
-                case "indexed_range_scan" -> {
+                case INDEXED_RANGE_SCAN -> {
                     var p = IndexedRangeScanPayload.fromBytes(op.payload());
                     var iterable = client.rangeScan(p.start(), p.end(),
                             Set.of(RangeScanOption.UseIndex(p.indexName())));
@@ -172,23 +177,24 @@ public class OxiaKVAdapter implements Adapter {
                     }
                     yield OpResult.rangeScan(op.opId(), records);
                 }
-                case "sequence_put" -> {
+                case SEQUENCE_PUT -> {
                     var p = SequencePutPayload.fromBytes(op.payload());
                     client.put(p.prefix(), p.value().getBytes(StandardCharsets.UTF_8),
                             Set.of(PutOption.SequenceKeysDeltas(List.of(p.delta())),
                                     PutOption.PartitionKey(p.prefix())));
-                    yield OpResult.ok(op.opId(), "sequence_put");
+                    yield OpResult.ok(op.opId(), OpType.SEQUENCE_PUT.value());
                 }
-                default -> OpResult.error(op.opId(), op.opType(),
+                default -> OpResult.error(op.opId(), op.opType().value(),
                         "unknown op type: " + op.opType());
             };
         } catch (Exception e) {
-            return OpResult.error(op.opId(), op.opType(), e.getMessage());
+            return OpResult.error(op.opId(), op.opType().value(), e.getMessage());
         }
     }
 
     @Override
     public List<io.regret.sdk.Record> readState(List<String> keys) throws Exception {
+        LOG.info("readState keys={}", keys.size());
         return keys.stream().map(key -> {
             GetResult res = client.get(key);
             if (res != null) {
