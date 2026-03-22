@@ -42,30 +42,9 @@ pub struct OriginUploadResponse {
 }
 
 // --- Generate ---
-
-#[derive(Debug, Deserialize)]
-pub struct GenerateRequest {
-    pub profile: String,
-    pub ops: usize,
-    #[serde(default = "default_keys")]
-    pub keys: usize,
-    #[serde(default = "default_read_ratio")]
-    pub read_ratio: f64,
-    #[serde(default = "default_cas_ratio")]
-    pub cas_ratio: f64,
-    #[serde(default = "default_dr_ratio")]
-    pub dr_ratio: f64,
-    #[serde(default = "default_fence_every")]
-    pub fence_every: usize,
-    #[serde(default)]
-    pub seed: Option<u64>,
-}
-
-fn default_keys() -> usize { 100 }
-fn default_read_ratio() -> f64 { 0.3 }
-fn default_cas_ratio() -> f64 { 0.1 }
-fn default_dr_ratio() -> f64 { 0.05 }
-fn default_fence_every() -> usize { 50 }
+// GenerateRequest is just GenerateParams from the generator module.
+// Re-exported here so the API handler can deserialize directly.
+pub use crate::generator::GenerateParams as GenerateRequest;
 
 // --- Run Control ---
 

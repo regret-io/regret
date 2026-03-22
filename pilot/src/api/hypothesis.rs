@@ -163,9 +163,6 @@ pub async fn generate(
     if req.ops == 0 {
         return Err(ApiError::BadRequest("ops must be > 0".to_string()));
     }
-    if req.read_ratio < 0.0 || req.read_ratio > 1.0 {
-        return Err(ApiError::BadRequest("read_ratio must be 0.0–1.0".to_string()));
-    }
     if req.profile != "basic-kv" {
         return Err(ApiError::BadRequest(format!(
             "unsupported profile: {}",
@@ -173,22 +170,9 @@ pub async fn generate(
         )));
     }
 
-    let seed = req.seed.unwrap_or_else(|| rand::random());
-
-    let params = crate::generator::GenerateParams {
-        profile: req.profile,
-        ops: req.ops,
-        keys: req.keys,
-        read_ratio: req.read_ratio,
-        cas_ratio: req.cas_ratio,
-        dr_ratio: req.dr_ratio,
-        fence_every: req.fence_every,
-        seed,
-    };
-
     // Generate to buffer
     let mut buf = Vec::new();
-    let _stats = crate::generator::generate_to_writer(&params, &mut buf)
+    let _stats = crate::generator::generate_to_writer(&req, &mut buf)
         .map_err(|e| ApiError::Internal(e.into()))?;
 
     // Store via shared helper
