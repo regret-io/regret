@@ -1,5 +1,2 @@
 import { redirect } from "next/navigation";
-
-export default function Home() {
-  redirect("/hypotheses");
-}
+export default function Home() { redirect("/templates"); }
