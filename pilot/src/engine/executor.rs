@@ -242,29 +242,68 @@ impl Executor {
         Ok(StopReason::Completed)
     }
 
-    /// Split ops into batches. delete_range always gets its own batch.
-    fn split_into_batches<'a>(&self, ops: &'a [Operation]) -> Vec<Vec<Operation>> {
+    /// Split ops into conflict-free batches.
+    /// Rules:
+    /// - Writes and reads are never in the same batch
+    /// - delete_range always gets its own batch
+    /// - No two write ops in a batch touch the same key
+    /// - Batch size capped at config.batch_size
+    fn split_into_batches(&self, ops: &[Operation]) -> Vec<Vec<Operation>> {
         let mut batches = Vec::new();
-        let mut current = Vec::new();
+        let mut writes = Vec::new();
+        let mut reads = Vec::new();
+        let mut write_keys = std::collections::HashSet::new();
 
         for op in ops {
-            if matches!(op.kind, OpKind::DeleteRange { .. }) {
-                // Flush current batch
-                if !current.is_empty() {
-                    batches.push(std::mem::take(&mut current));
+            let is_read = matches!(op.kind,
+                OpKind::Get { .. } | OpKind::List { .. } | OpKind::RangeScan { .. }
+                | OpKind::IndexedGet { .. } | OpKind::IndexedList { .. } | OpKind::IndexedRangeScan { .. }
+            );
+
+            if is_read {
+                // Flush pending writes first, then accumulate reads
+                if !writes.is_empty() {
+                    batches.push(std::mem::take(&mut writes));
+                    write_keys.clear();
                 }
-                // delete_range as its own batch
+                reads.push(op.clone());
+                if reads.len() >= self.config.batch_size {
+                    batches.push(std::mem::take(&mut reads));
+                }
+            } else if matches!(op.kind, OpKind::DeleteRange { .. }) {
+                // Flush everything, then delete_range alone
+                if !writes.is_empty() {
+                    batches.push(std::mem::take(&mut writes));
+                    write_keys.clear();
+                }
+                if !reads.is_empty() {
+                    batches.push(std::mem::take(&mut reads));
+                }
                 batches.push(vec![op.clone()]);
             } else {
-                current.push(op.clone());
-                if current.len() >= self.config.batch_size {
-                    batches.push(std::mem::take(&mut current));
+                // Write op — flush reads first if any
+                if !reads.is_empty() {
+                    batches.push(std::mem::take(&mut reads));
+                }
+
+                let key = op_key(&op.kind);
+                if let Some(k) = &key {
+                    if write_keys.contains(k.as_str()) {
+                        batches.push(std::mem::take(&mut writes));
+                        write_keys.clear();
+                    }
+                    write_keys.insert(k.clone());
+                }
+
+                writes.push(op.clone());
+                if writes.len() >= self.config.batch_size {
+                    batches.push(std::mem::take(&mut writes));
+                    write_keys.clear();
                 }
             }
         }
-        if !current.is_empty() {
-            batches.push(current);
-        }
+        if !writes.is_empty() { batches.push(writes); }
+        if !reads.is_empty() { batches.push(reads); }
         batches
     }
 
@@ -332,6 +371,20 @@ impl Executor {
         if let Err(e) = self.files.append_event(&self.hypothesis_id, &event.to_json()) {
             error!(error = %e, "failed to write event");
         }
+    }
+}
+
+/// Extract the primary key from an operation (for conflict detection).
+fn op_key(kind: &OpKind) -> Option<String> {
+    match kind {
+        OpKind::Put { key, .. } | OpKind::Get { key } | OpKind::Delete { key }
+        | OpKind::Cas { key, .. } | OpKind::EphemeralPut { key, .. }
+        | OpKind::IndexedPut { key, .. } => Some(key.clone()),
+        OpKind::SequencePut { prefix, .. } => Some(prefix.clone()),
+        OpKind::List { .. } | OpKind::RangeScan { .. }
+        | OpKind::IndexedGet { .. } | OpKind::IndexedList { .. }
+        | OpKind::IndexedRangeScan { .. } => None, // reads don't conflict
+        OpKind::DeleteRange { .. } | OpKind::Fence => None,
     }
 }
 
