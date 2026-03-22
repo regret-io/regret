@@ -1,0 +1,160 @@
+package io.regret.adapter.oxia;
+
+import io.regret.sdk.*;
+import io.regret.sdk.payload.*;
+import io.streamnative.oxia.client.api.OxiaClientBuilder;
+import io.streamnative.oxia.client.api.GetResult;
+import io.streamnative.oxia.client.api.PutOption;
+import io.streamnative.oxia.client.api.SyncOxiaClient;
+import io.streamnative.oxia.client.api.exceptions.UnexpectedVersionIdException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+
+public class OxiaKVAdapter implements Adapter {
+
+    private static final Logger LOG = LoggerFactory.getLogger(OxiaKVAdapter.class);
+
+    private final SyncOxiaClient client;
+
+    public OxiaKVAdapter() {
+        String oxiaAddr = System.getenv("OXIA_ADDR");
+        String namespace = System.getenv("OXIA_NAMESPACE");
+
+        if (oxiaAddr == null) {
+            throw new IllegalStateException("OXIA_ADDR env var is required");
+        }
+
+        LOG.info("Connecting to Oxia at {} namespace={}", oxiaAddr, namespace);
+
+        var builder = OxiaClientBuilder.create(oxiaAddr);
+        if (namespace != null && !namespace.isEmpty()) {
+            builder.namespace(namespace);
+        }
+        try {
+            this.client = builder.syncClient();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create Oxia client", e);
+        }
+    }
+
+    @Override
+    public BatchResponse executeBatch(Batch batch) throws Exception {
+        List<OpResult> results = new ArrayList<>();
+        List<CompletableFuture<OpResult>> pending = new ArrayList<>();
+
+        for (Item item : batch.items()) {
+            switch (item) {
+                case Item.Op(Operation op) ->
+                        pending.add(CompletableFuture.supplyAsync(() -> executeOp(op)));
+                case Item.Fence() -> {
+                    for (var f : pending) results.add(f.get());
+                    pending.clear();
+                }
+            }
+        }
+        for (var f : pending) results.add(f.get());
+
+        return new BatchResponse(batch.batchId(), results);
+    }
+
+    private OpResult executeOp(Operation op) {
+        try {
+            return switch (op.opType()) {
+                case "put" -> {
+                    var p = PutPayload.fromBytes(op.payload());
+                    client.put(p.key(), p.value().getBytes(StandardCharsets.UTF_8));
+                    yield OpResult.ok(op.opId(), "put");
+                }
+                case "delete" -> {
+                    var p = DeletePayload.fromBytes(op.payload());
+                    boolean existed = client.delete(p.key());
+                    yield existed ? OpResult.ok(op.opId(), "delete")
+                            : OpResult.notFound(op.opId(), "delete");
+                }
+                case "delete_range" -> {
+                    var p = DeleteRangePayload.fromBytes(op.payload());
+                    client.deleteRange(p.start(), p.end());
+                    yield OpResult.ok(op.opId(), "delete_range");
+                }
+                case "cas" -> {
+                    var p = CasPayload.fromBytes(op.payload());
+                    try {
+                        client.put(p.key(), p.newValue().getBytes(StandardCharsets.UTF_8),
+                                Set.of(PutOption.IfVersionIdEquals(p.expectedVersionId())));
+                        yield OpResult.ok(op.opId(), "cas");
+                    } catch (UnexpectedVersionIdException e) {
+                        yield OpResult.versionMismatch(op.opId(), "cas");
+                    }
+                }
+                case "get" -> {
+                    var p = GetPayload.fromBytes(op.payload());
+                    GetResult res = client.get(p.key());
+                    if (res == null) {
+                        yield OpResult.notFound(op.opId(), "get");
+                    } else {
+                        yield OpResult.get(op.opId(),
+                                new String(res.getValue(), StandardCharsets.UTF_8),
+                                res.getVersion().versionId());
+                    }
+                }
+                case "range_scan" -> {
+                    var p = RangeScanPayload.fromBytes(op.payload());
+                    var keys = client.list(p.start(), p.end());
+                    var records = new ArrayList<OpResult.RangeScanRecord>();
+                    for (String key : keys) {
+                        GetResult r = client.get(key);
+                        if (r != null) {
+                            records.add(new OpResult.RangeScanRecord(key,
+                                    new String(r.getValue(), StandardCharsets.UTF_8),
+                                    r.getVersion().versionId()));
+                        }
+                    }
+                    yield OpResult.rangeScan(op.opId(), records);
+                }
+                case "list" -> {
+                    var p = ListPayload.fromBytes(op.payload());
+                    var keys = client.list(p.prefix(), p.prefix() + "\uffff");
+                    yield OpResult.list(op.opId(), keys);
+                }
+                default -> OpResult.error(op.opId(), op.opType(),
+                        "unknown op type: " + op.opType());
+            };
+        } catch (Exception e) {
+            return OpResult.error(op.opId(), op.opType(), e.getMessage());
+        }
+    }
+
+    @Override
+    public List<io.regret.sdk.Record> readState(List<String> keys) throws Exception {
+        return keys.stream().map(key -> {
+            GetResult res = client.get(key);
+            if (res != null) {
+                return io.regret.sdk.Record.builder()
+                        .key(key)
+                        .value(res.getValue())
+                        .metadata(Map.of(
+                                "version_id",
+                                String.valueOf(res.getVersion().versionId())))
+                        .build();
+            } else {
+                return io.regret.sdk.Record.builder()
+                        .key(key)
+                        .value(null)
+                        .build();
+            }
+        }).toList();
+    }
+
+    @Override
+    public void cleanup() throws Exception {
+        client.close();
+    }
+
+    public static void main(String[] args) throws Exception {
+        RegretAdapterServer.serve(new OxiaKVAdapter());
+    }
+}
