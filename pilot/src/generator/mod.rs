@@ -1,10 +1,8 @@
 pub mod kv;
-pub mod stats;
 pub mod types;
 
 use std::io::{self, Write};
 
-use stats::GenStats;
 use types::OriginOp;
 
 /// Parameters for origin dataset generation.
@@ -33,6 +31,13 @@ impl Default for GenerateParams {
             seed: 42,
         }
     }
+}
+
+/// Generation statistics.
+#[derive(Debug, Clone)]
+pub struct GenStats {
+    pub total_ops: usize,
+    pub total_fences: usize,
 }
 
 /// Generate origin dataset and return as a Vec.

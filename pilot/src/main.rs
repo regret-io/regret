@@ -3,6 +3,7 @@ mod api;
 mod app_state;
 mod config;
 mod engine;
+mod generator;
 mod grpc;
 mod reference;
 mod storage;

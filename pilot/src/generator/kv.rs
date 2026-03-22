@@ -3,14 +3,13 @@ use std::collections::BTreeMap;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use crate::types::OriginOp;
-use crate::GenerateParams;
+use super::GenerateParams;
+use super::types::OriginOp;
 
 /// Generates a basic-kv origin dataset.
 pub struct BasicKvGenerator {
     rng: StdRng,
     params: GenerateParams,
-    /// Internal version tracking for valid CAS ops.
     versions: BTreeMap<String, u64>,
     op_counter: usize,
 }
@@ -49,7 +48,6 @@ impl BasicKvGenerator {
             ops_since_fence += 1;
         }
 
-        // Always end with a fence if there are pending writes
         if ops_since_fence > 0 {
             ops.push(OriginOp::fence());
 
@@ -68,14 +66,14 @@ impl BasicKvGenerator {
     }
 
     fn compute_read_count(&self) -> usize {
-        let total =
-            self.params.fence_every as f64 * self.params.read_ratio / (1.0 - self.params.read_ratio);
+        let total = self.params.fence_every as f64 * self.params.read_ratio
+            / (1.0 - self.params.read_ratio);
         (total as usize).max(1)
     }
 
     fn gen_write_op(&mut self) -> OriginOp {
         let id = self.next_id();
-        let roll: f64 = self.rng.gen();
+        let roll: f64 = self.rng.r#gen();
 
         if roll < self.params.dr_ratio {
             self.gen_delete_range(id)
@@ -106,7 +104,7 @@ impl BasicKvGenerator {
         let a = self.rng.gen_range(0..self.params.keys);
         let b = self.rng.gen_range(0..self.params.keys);
         let lo = a.min(b);
-        let hi = a.max(b) + 1; // ensure hi > lo
+        let hi = a.max(b) + 1;
         let start = format!("user:{lo:06}");
         let end = format!("user:{hi:06}");
 
@@ -139,7 +137,7 @@ impl BasicKvGenerator {
     }
 
     fn gen_read_op_with_id(&mut self, id: String) -> OriginOp {
-        let roll: f64 = self.rng.gen();
+        let roll: f64 = self.rng.r#gen();
         if roll < 0.5 {
             let key = self.random_key();
             OriginOp::get(id, key)
@@ -184,124 +182,5 @@ impl BasicKvGenerator {
         let idx = self.rng.gen_range(0..keys.len());
         let key = keys[idx];
         Some((key, self.versions.get(key).unwrap()))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_deterministic_generation() {
-        let params = GenerateParams {
-            profile: "basic-kv".to_string(),
-            ops: 100,
-            keys: 10,
-            read_ratio: 0.3,
-            cas_ratio: 0.1,
-            dr_ratio: 0.05,
-            fence_every: 20,
-            seed: 42,
-        };
-
-        let ops1 = BasicKvGenerator::new(&params).generate();
-        let ops2 = BasicKvGenerator::new(&params).generate();
-
-        let json1: Vec<String> = ops1
-            .iter()
-            .map(|op| serde_json::to_string(op).unwrap())
-            .collect();
-        let json2: Vec<String> = ops2
-            .iter()
-            .map(|op| serde_json::to_string(op).unwrap())
-            .collect();
-
-        assert_eq!(json1, json2, "same seed must produce identical output");
-    }
-
-    #[test]
-    fn test_reads_only_after_fence() {
-        let params = GenerateParams {
-            profile: "basic-kv".to_string(),
-            ops: 200,
-            keys: 20,
-            read_ratio: 0.3,
-            cas_ratio: 0.1,
-            dr_ratio: 0.05,
-            fence_every: 30,
-            seed: 123,
-        };
-
-        let ops = BasicKvGenerator::new(&params).generate();
-        let mut saw_fence = false;
-
-        for op in &ops {
-            match op {
-                OriginOp::Fence(_) => saw_fence = true,
-                OriginOp::Operation(o) => {
-                    let is_read = o.op == "get" || o.op == "range_scan" || o.op == "list";
-                    if is_read {
-                        assert!(saw_fence, "read op {} without preceding fence", o.id);
-                    }
-                    if !is_read {
-                        saw_fence = false;
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_generates_expected_count() {
-        let params = GenerateParams {
-            profile: "basic-kv".to_string(),
-            ops: 50,
-            keys: 10,
-            read_ratio: 0.3,
-            cas_ratio: 0.1,
-            dr_ratio: 0.05,
-            fence_every: 10,
-            seed: 7,
-        };
-
-        let ops = BasicKvGenerator::new(&params).generate();
-        let op_count = ops
-            .iter()
-            .filter(|o| matches!(o, OriginOp::Operation(_)))
-            .count();
-
-        assert!(
-            op_count >= params.ops,
-            "expected at least {} ops, got {}",
-            params.ops,
-            op_count
-        );
-    }
-
-    #[test]
-    fn test_jsonl_output() {
-        let params = GenerateParams {
-            profile: "basic-kv".to_string(),
-            ops: 10,
-            keys: 5,
-            read_ratio: 0.3,
-            cas_ratio: 0.1,
-            dr_ratio: 0.05,
-            fence_every: 5,
-            seed: 42,
-        };
-
-        let mut buf = Vec::new();
-        let stats = crate::generate_to_writer(&params, &mut buf).unwrap();
-
-        assert!(stats.total_ops > 0);
-        assert!(stats.total_fences > 0);
-
-        let output = String::from_utf8(buf).unwrap();
-        // Each line should be valid JSON
-        for line in output.lines() {
-            let _: serde_json::Value = serde_json::from_str(line)
-                .unwrap_or_else(|e| panic!("invalid JSON: {e}\nline: {line}"));
-        }
     }
 }

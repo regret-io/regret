@@ -1,14 +1,15 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::{
-    AdapterBatchResponse, CheckpointFailure, OpExpect, OpKind, OpStatus, Operation,
-    RangeRecord, RecordState, ReferenceModel, ResponseFailure, Tolerance,
+    AdapterBatchResponse, CheckpointFailure, OpExpect, OpKind, OpStatus, Operation, RangeRecord,
+    RecordState, ReferenceModel, ResponseFailure, StructuralTolerance, Tolerance,
 };
 
 #[derive(Debug, Clone)]
 struct KVRecord {
     value: Option<String>,
     version_id: u64,
+    deleted: bool,
 }
 
 impl Default for KVRecord {
@@ -16,6 +17,7 @@ impl Default for KVRecord {
         Self {
             value: None,
             version_id: 0,
+            deleted: false,
         }
     }
 }
@@ -34,6 +36,18 @@ impl BasicKvReference {
             pending_expects: HashMap::new(),
         }
     }
+
+    /// Check if a field should be ignored per tolerance config.
+    fn should_ignore_field(field: &str, tolerance: &Option<Tolerance>) -> bool {
+        if let Some(t) = tolerance {
+            for s in &t.structural {
+                if s.field == field && s.ignore {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 impl ReferenceModel for BasicKvReference {
@@ -44,13 +58,19 @@ impl ReferenceModel for BasicKvReference {
                     let rec = self.store.entry(key.clone()).or_default();
                     rec.value = Some(value.clone());
                     rec.version_id += 1;
+                    rec.deleted = false;
                     self.touched_keys.insert(key.clone());
                     self.pending_expects
                         .insert(op.id.clone(), OpExpect::Write { status: OpStatus::Ok });
                 }
 
                 OpKind::Delete { key } => {
-                    let existed = self.store.remove(key).is_some();
+                    let existed = self.store.get(key).is_some_and(|r| !r.deleted && r.value.is_some());
+                    // Mark as deleted instead of removing — preserves key existence tracking
+                    if let Some(rec) = self.store.get_mut(key) {
+                        rec.value = None;
+                        rec.deleted = true;
+                    }
                     self.touched_keys.insert(key.clone());
                     self.pending_expects.insert(
                         op.id.clone(),
@@ -68,10 +88,14 @@ impl ReferenceModel for BasicKvReference {
                     let keys: Vec<String> = self
                         .store
                         .range(start.clone()..end.clone())
+                        .filter(|(_, r)| !r.deleted)
                         .map(|(k, _)| k.clone())
                         .collect();
                     for k in &keys {
-                        self.store.remove(k);
+                        if let Some(rec) = self.store.get_mut(k) {
+                            rec.value = None;
+                            rec.deleted = true;
+                        }
                         self.touched_keys.insert(k.clone());
                     }
                     self.pending_expects
@@ -87,6 +111,7 @@ impl ReferenceModel for BasicKvReference {
                     let status = if rec.version_id == *expected_version_id {
                         rec.value = Some(new_value.clone());
                         rec.version_id += 1;
+                        rec.deleted = false;
                         OpStatus::Ok
                     } else {
                         OpStatus::VersionMismatch
@@ -97,7 +122,7 @@ impl ReferenceModel for BasicKvReference {
                 }
 
                 OpKind::Get { key } => {
-                    let rec = self.store.get(key);
+                    let rec = self.store.get(key).filter(|r| !r.deleted);
                     self.pending_expects.insert(
                         op.id.clone(),
                         OpExpect::Get {
@@ -111,6 +136,7 @@ impl ReferenceModel for BasicKvReference {
                     let records: Vec<RangeRecord> = self
                         .store
                         .range(start.clone()..end.clone())
+                        .filter(|(_, r)| !r.deleted)
                         .filter_map(|(k, r)| {
                             r.value.as_ref().map(|v| RangeRecord {
                                 key: k.clone(),
@@ -128,16 +154,14 @@ impl ReferenceModel for BasicKvReference {
                         .store
                         .range(prefix.clone()..)
                         .take_while(|(k, _)| k.starts_with(prefix.as_str()))
-                        .filter(|(_, r)| r.value.is_some())
+                        .filter(|(_, r)| !r.deleted && r.value.is_some())
                         .map(|(k, _)| k.clone())
                         .collect();
                     self.pending_expects
                         .insert(op.id.clone(), OpExpect::List { keys });
                 }
 
-                OpKind::Fence => {
-                    // Fence is a sync point, no expectation needed
-                }
+                OpKind::Fence => {}
             }
         }
     }
@@ -150,9 +174,10 @@ impl ReferenceModel for BasicKvReference {
         &self,
         expects: &HashMap<String, OpExpect>,
         actual: &AdapterBatchResponse,
-        _tolerance: &Option<Tolerance>,
+        tolerance: &Option<Tolerance>,
     ) -> Vec<ResponseFailure> {
         let mut failures = Vec::new();
+        let ignore_version = Self::should_ignore_field("metadata.version_id", tolerance);
 
         for result in &actual.results {
             let Some(expected) = expects.get(&result.op_id) else {
@@ -180,21 +205,35 @@ impl ReferenceModel for BasicKvReference {
                                 actual: format!("status={}", result.status),
                             });
                         }
+                    } else if result.status != "ok" {
+                        failures.push(ResponseFailure {
+                            op_id: result.op_id.clone(),
+                            op: result.op.clone(),
+                            expected: "status=ok".to_string(),
+                            actual: format!("status={}", result.status),
+                        });
                     } else {
-                        if result.status != "ok" {
-                            failures.push(ResponseFailure {
-                                op_id: result.op_id.clone(),
-                                op: result.op.clone(),
-                                expected: "status=ok".to_string(),
-                                actual: format!("status={}", result.status),
-                            });
-                        } else if result.value.as_ref() != value.as_ref() {
+                        // Check value
+                        if result.value.as_ref() != value.as_ref() {
                             failures.push(ResponseFailure {
                                 op_id: result.op_id.clone(),
                                 op: result.op.clone(),
                                 expected: format!("value={:?}", value),
                                 actual: format!("value={:?}", result.value),
                             });
+                        }
+                        // Check version_id (unless ignored by tolerance)
+                        if !ignore_version {
+                            if let Some(actual_vid) = result.version_id {
+                                if actual_vid != *version_id {
+                                    failures.push(ResponseFailure {
+                                        op_id: result.op_id.clone(),
+                                        op: result.op.clone(),
+                                        expected: format!("version_id={version_id}"),
+                                        actual: format!("version_id={actual_vid}"),
+                                    });
+                                }
+                            }
                         }
                     }
                 }
@@ -211,18 +250,26 @@ impl ReferenceModel for BasicKvReference {
                             for (i, (exp, act)) in
                                 records.iter().zip(actual_records.iter()).enumerate()
                             {
+                                let mut mismatch = false;
+                                let mut exp_str = format!("key={},value={}", exp.key, exp.value);
+                                let mut act_str = format!("key={},value={}", act.key, act.value);
+
                                 if exp.key != act.key || exp.value != act.value {
+                                    mismatch = true;
+                                }
+
+                                if !ignore_version && exp.version_id != act.version_id {
+                                    mismatch = true;
+                                    exp_str = format!("{exp_str},vid={}", exp.version_id);
+                                    act_str = format!("{act_str},vid={}", act.version_id);
+                                }
+
+                                if mismatch {
                                     failures.push(ResponseFailure {
                                         op_id: result.op_id.clone(),
                                         op: result.op.clone(),
-                                        expected: format!(
-                                            "record[{i}]={{key={},value={}}}",
-                                            exp.key, exp.value
-                                        ),
-                                        actual: format!(
-                                            "record[{i}]={{key={},value={}}}",
-                                            act.key, act.value
-                                        ),
+                                        expected: format!("record[{i}]{{{exp_str}}}"),
+                                        actual: format!("record[{i}]{{{act_str}}}"),
                                     });
                                 }
                             }
@@ -250,25 +297,25 @@ impl ReferenceModel for BasicKvReference {
     fn verify_checkpoint(
         &self,
         actual_state: &HashMap<String, Option<RecordState>>,
-        _tolerance: &Option<Tolerance>,
+        tolerance: &Option<Tolerance>,
     ) -> Vec<CheckpointFailure> {
         let mut failures = Vec::new();
         let expect = self.snapshot(&self.touched_keys);
+        let ignore_version = Self::should_ignore_field("metadata.version_id", tolerance);
 
-        let all_keys: HashSet<&String> = expect
-            .keys()
-            .chain(actual_state.keys())
-            .collect();
+        let all_keys: HashSet<&String> = expect.keys().chain(actual_state.keys()).collect();
 
         for key in all_keys {
             let exp = expect.get(key).cloned().flatten();
             let act = actual_state.get(key).cloned().flatten();
 
             match (&exp, &act) {
-                (None, None) => {} // both absent
+                (None, None) => {}
                 (Some(e), Some(a)) => {
-                    // Compare value and version
-                    if e.value != a.value || e.version_id != a.version_id {
+                    let value_mismatch = e.value != a.value;
+                    let version_mismatch = !ignore_version && e.version_id != a.version_id;
+
+                    if value_mismatch || version_mismatch {
                         failures.push(CheckpointFailure {
                             key: key.clone(),
                             expected: Some(e.clone()),
@@ -297,11 +344,15 @@ impl ReferenceModel for BasicKvReference {
         keys.iter()
             .map(|k| {
                 let state = self.store.get(k).and_then(|r| {
-                    r.value.as_ref().map(|v| RecordState {
-                        value: Some(v.clone()),
-                        version_id: r.version_id,
-                        metadata: HashMap::new(),
-                    })
+                    if r.deleted || r.value.is_none() {
+                        None // Deleted or never had value → absent
+                    } else {
+                        Some(RecordState {
+                            value: r.value.clone(),
+                            version_id: r.version_id,
+                            metadata: HashMap::new(),
+                        })
+                    }
                 });
                 (k.clone(), state)
             })

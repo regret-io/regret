@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-use bytes::Bytes;
-use prost::Message;
 use tonic::transport::Channel;
 
 use regret_proto::regret_v1::adapter_service_client::AdapterServiceClient;
@@ -43,6 +41,8 @@ impl AdapterClient for GrpcAdapterClient {
         trace_id: &str,
         ops: &[Operation],
     ) -> Result<AdapterBatchResponse> {
+        // Build op_id -> op_type map for response mapping
+        let mut op_type_map: HashMap<String, String> = HashMap::new();
         let mut items = Vec::new();
 
         for op in ops {
@@ -54,6 +54,7 @@ impl AdapterClient for GrpcAdapterClient {
                 }
                 _ => {
                     let (op_type, payload) = serialize_op(&op.kind);
+                    op_type_map.insert(op.id.clone(), op_type.clone());
                     items.push(proto::Item {
                         item: Some(proto::item::Item::Op(proto::Operation {
                             op_id: op.id.clone(),
@@ -78,22 +79,22 @@ impl AdapterClient for GrpcAdapterClient {
             .context("ExecuteBatch RPC failed")?
             .into_inner();
 
-        // Convert proto response to SDK types
         let results = response
             .results
             .into_iter()
             .map(|r| {
+                // Parse payload JSON for result-specific fields
                 let payload: serde_json::Value = if r.payload.is_empty() {
                     serde_json::Value::Null
                 } else {
                     serde_json::from_slice(&r.payload).unwrap_or_default()
                 };
 
-                let op_type = payload
-                    .get("op_type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                // Look up op type from our map
+                let op_type = op_type_map
+                    .get(&r.op_id)
+                    .cloned()
+                    .unwrap_or_default();
 
                 AdapterOpResult {
                     op_id: r.op_id,
@@ -108,15 +109,18 @@ impl AdapterClient for GrpcAdapterClient {
                                     Some(RangeRecord {
                                         key: r.get("key")?.as_str()?.to_string(),
                                         value: r.get("value")?.as_str()?.to_string(),
-                                        version_id: r.get("version_id")?.as_u64()?,
+                                        version_id: r.get("version_id")?.as_u64().unwrap_or(0),
                                     })
                                 })
                                 .collect()
                         })
                     }),
                     keys: payload.get("keys").and_then(|v| {
-                        v.as_array()
-                            .map(|arr| arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect())
+                        v.as_array().map(|arr| {
+                            arr.iter()
+                                .filter_map(|k| k.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
                     }),
                     deleted_count: payload.get("deleted_count").and_then(|v| v.as_u64()),
                     message: if r.message.is_empty() {
@@ -151,21 +155,21 @@ impl AdapterClient for GrpcAdapterClient {
 
         let mut result = HashMap::new();
         for record in response.records {
-            let state = if record.value.is_some() {
-                let value_bytes = record.value.unwrap();
-                let value_str = String::from_utf8_lossy(&value_bytes).to_string();
-                let version_id = record
-                    .metadata
-                    .get("version_id")
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .unwrap_or(0);
-                Some(RecordState {
-                    value: Some(value_str),
-                    version_id,
-                    metadata: record.metadata,
-                })
-            } else {
-                None
+            let state = match record.value {
+                Some(value_bytes) => {
+                    let value_str = String::from_utf8_lossy(&value_bytes).to_string();
+                    let version_id = record
+                        .metadata
+                        .get("version_id")
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .unwrap_or(0);
+                    Some(RecordState {
+                        value: Some(value_str),
+                        version_id,
+                        metadata: record.metadata,
+                    })
+                }
+                None => None, // Key does not exist in adapter
             };
             result.insert(record.key, state);
         }

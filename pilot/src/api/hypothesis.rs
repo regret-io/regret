@@ -174,7 +174,7 @@ pub async fn generate(
 
     let seed = req.seed.unwrap_or_else(|| rand::random());
 
-    let params = regret_gen_core::GenerateParams {
+    let params = crate::generator::GenerateParams {
         profile: req.profile,
         ops: req.ops,
         keys: req.keys,
@@ -187,7 +187,7 @@ pub async fn generate(
 
     // Generate to buffer
     let mut buf = Vec::new();
-    let stats = regret_gen_core::generate_to_writer(&params, &mut buf)
+    let _stats = crate::generator::generate_to_writer(&params, &mut buf)
         .map_err(|e| ApiError::Internal(e.into()))?;
 
     // Store via shared helper

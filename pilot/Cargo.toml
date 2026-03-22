@@ -9,7 +9,6 @@ path = "src/main.rs"
 
 [dependencies]
 regret-proto = { path = "../proto" }
-regret-gen-core = { path = "../gen/core" }
 
 # Web framework
 axum = "0.8"

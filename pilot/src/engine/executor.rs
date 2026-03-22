@@ -247,13 +247,9 @@ impl Executor {
             self.reference.apply(&ops);
             let expects = self.reference.take_expects();
 
-            // Send to adapter (if available)
+            // Send full batch to adapter including fences (adapter SDK handles fence semantics)
             let adapter_response = if let Some(client) = &self.adapter_client {
-                let non_fence_ops: Vec<&Operation> = ops.iter()
-                    .filter(|op| !matches!(op.kind, OpKind::Fence))
-                    .collect();
-
-                match self.execute_with_retry(client.as_ref(), &batch_id, &non_fence_ops).await {
+                match self.execute_with_retry(client.as_ref(), &batch_id, &ops).await {
                     Ok(resp) => Some(resp),
                     Err(e) => {
                         self.emit_event(Event::batch_failed(
@@ -387,14 +383,13 @@ impl Executor {
         &self,
         client: &dyn AdapterClient,
         batch_id: &str,
-        ops: &[&Operation],
+        ops: &[Operation],
     ) -> Result<AdapterBatchResponse> {
-        let owned_ops: Vec<Operation> = ops.iter().map(|o| (*o).clone()).collect();
         let mut attempt = 0u32;
         let mut delay_ms = self.config.initial_retry_delay_ms;
 
         loop {
-            match client.execute_batch(batch_id, &self.run_id, &owned_ops).await {
+            match client.execute_batch(batch_id, &self.run_id, ops).await {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     attempt += 1;
