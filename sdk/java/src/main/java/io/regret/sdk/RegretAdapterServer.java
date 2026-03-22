@@ -44,19 +44,27 @@ public class RegretAdapterServer {
         public StreamObserver<Regret.ExecuteRequest> execute(
                 StreamObserver<Regret.ExecuteResponse> responseObserver) {
 
+            LOG.info("Execute stream opened");
+            final long streamStartMs = System.currentTimeMillis();
+
             return new StreamObserver<>() {
                 private final List<CompletableFuture<Void>> pending = new ArrayList<>();
+                private int opCount = 0;
+                private int fenceCount = 0;
 
                 @Override
                 public void onNext(Regret.ExecuteRequest request) {
                     if (request.hasOp()) {
+                        opCount++;
                         Regret.Operation protoOp = request.getOp();
                         Operation op = new Operation(
                                 protoOp.getOpId(),
                                 OpType.fromString(protoOp.getOpType()),
                                 protoOp.getPayload().toByteArray());
 
-                        // Execute concurrently, send result when done
+                        LOG.trace("op {} {} {}", op.opId(), op.opType(),
+                                op.payload() != null ? new String(op.payload(), java.nio.charset.StandardCharsets.UTF_8) : "");
+
                         CompletableFuture<Void> future = CompletableFuture
                                 .supplyAsync(() -> adapter.executeOp(op))
                                 .thenAccept(result -> {
@@ -73,8 +81,9 @@ public class RegretAdapterServer {
                         pending.add(future);
 
                     } else if (request.hasFence()) {
-                        // Wait for all pending ops, then ack
+                        fenceCount++;
                         long fenceId = request.getFence().getFenceId();
+                        LOG.debug("fence {} — waiting for {} pending ops", fenceId, pending.size());
                         try {
                             CompletableFuture.allOf(pending.toArray(new CompletableFuture[0])).join();
                         } catch (Exception e) {
@@ -91,7 +100,7 @@ public class RegretAdapterServer {
 
                 @Override
                 public void onError(Throwable t) {
-                    LOG.error("Execute stream error", t);
+                    LOG.error("Execute stream error after {} ops, {} fences", opCount, fenceCount, t);
                 }
 
                 @Override
@@ -102,6 +111,8 @@ public class RegretAdapterServer {
                         LOG.error("Error draining pending ops", e);
                     }
                     pending.clear();
+                    long durationMs = System.currentTimeMillis() - streamStartMs;
+                    LOG.info("Execute stream completed: {} ops, {} fences, {}ms", opCount, fenceCount, durationMs);
                     synchronized (responseObserver) {
                         responseObserver.onCompleted();
                     }
