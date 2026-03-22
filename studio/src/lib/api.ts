@@ -7,6 +7,7 @@ export interface Hypothesis {
   adapter?: string;
   adapter_addr?: string;
   duration?: string;
+  checkpoint_every?: number;
   tolerance?: Record<string, unknown>;
   status: "idle" | "running" | "passed" | "failed" | "stopped";
   created_at: string;
@@ -91,6 +92,7 @@ export async function createHypothesis(body: {
   adapter?: string;
   adapter_addr?: string;
   duration?: string;
+  checkpoint_every?: number;
   tolerance?: Record<string, unknown>;
 }): Promise<Hypothesis> {
   return request<Hypothesis>("/api/hypothesis", {

@@ -47,6 +47,7 @@ export default function TemplatesPage() {
   const [adapter, setAdapter] = useState(ADAPTER_NONE);
   const [adapterAddr, setAdapterAddr] = useState("");
   const [duration, setDuration] = useState("");
+  const [checkpointEvery, setCheckpointEvery] = useState("10");
   const [toleranceJson, setToleranceJson] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -91,6 +92,7 @@ export default function TemplatesPage() {
         adapter: adapter !== ADAPTER_NONE ? adapter : undefined,
         adapter_addr: adapterAddr || undefined,
         duration: duration || undefined,
+        checkpoint_every: parseInt(checkpointEvery) || 10,
         tolerance,
       });
       toast.success("Template created");
@@ -99,6 +101,7 @@ export default function TemplatesPage() {
       setAdapter(ADAPTER_NONE);
       setAdapterAddr("");
       setDuration("");
+      setCheckpointEvery("10");
       setToleranceJson("");
       setDialogOpen(false);
       load();
@@ -189,6 +192,16 @@ export default function TemplatesPage() {
                   value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                   placeholder="30s, 5m, 1h, or empty for forever"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="tpl-checkpoint">Checkpoint Every (batches)</Label>
+                <Input
+                  id="tpl-checkpoint"
+                  type="number"
+                  value={checkpointEvery}
+                  onChange={(e) => setCheckpointEvery(e.target.value)}
+                  placeholder="10"
                 />
               </div>
               <div className="grid gap-2">
