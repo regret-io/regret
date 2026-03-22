@@ -9,6 +9,14 @@ CREATE TABLE IF NOT EXISTS hypotheses (
     last_run_at   TEXT
 );
 
+CREATE TABLE IF NOT EXISTS adapters (
+    id              TEXT PRIMARY KEY,
+    name            TEXT UNIQUE NOT NULL,
+    image           TEXT NOT NULL,
+    env             TEXT NOT NULL DEFAULT '{}',
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 CREATE TABLE IF NOT EXISTS hypothesis_results (
     id                   TEXT PRIMARY KEY,
     hypothesis_id        TEXT NOT NULL REFERENCES hypotheses(id) ON DELETE CASCADE,
@@ -23,4 +31,4 @@ CREATE TABLE IF NOT EXISTS hypothesis_results (
     started_at           TEXT,
     finished_at          TEXT,
     created_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
-);
+)

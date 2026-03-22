@@ -4,7 +4,7 @@ use anyhow::Result;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::reference::{ReferenceModel, Tolerance};
 
@@ -12,7 +12,6 @@ use super::SharedServices;
 use super::executor::{AdapterClient, ExecutionConfig, Executor, ProgressInfo, StopReason};
 
 /// Per-hypothesis lifecycle manager.
-/// Created when a hypothesis is created, destroyed when deleted.
 pub struct HypothesisManager {
     pub hypothesis_id: String,
     pub profile: String,
@@ -53,7 +52,7 @@ impl HypothesisManager {
         }
     }
 
-    /// Start a new run. If adapter_addr is provided, connects via gRPC.
+    /// Start a new run. If adapter_addr is provided, connects to adapter via gRPC.
     pub async fn start_run(
         &mut self,
         config: ExecutionConfig,
@@ -66,7 +65,7 @@ impl HypothesisManager {
         let reference = self
             .reference
             .take()
-            .ok_or_else(|| anyhow::anyhow!("reference model not available (run in progress?)"))?;
+            .ok_or_else(|| anyhow::anyhow!("reference model not available"))?;
 
         let run_id = format!(
             "run-{}",
@@ -88,6 +87,25 @@ impl HypothesisManager {
             )
             .await?;
 
+        // Connect to adapter if address provided
+        let adapter_client: Option<Box<dyn AdapterClient>> = if let Some(addr) = &adapter_addr {
+            info!(
+                hypothesis_id = %self.hypothesis_id,
+                grpc_addr = %addr,
+                "connecting to adapter"
+            );
+            match crate::adapter::grpc_client::GrpcAdapterClient::connect(addr).await {
+                Ok(client) => Some(Box::new(client) as Box<dyn AdapterClient>),
+                Err(e) => {
+                    warn!(grpc_addr = %addr, error = %e, "failed to connect to adapter, running reference model only");
+                    None
+                }
+            }
+        } else {
+            info!(hypothesis_id = %self.hypothesis_id, "no adapter specified, running reference model only");
+            None
+        };
+
         let executor = Executor {
             hypothesis_id: self.hypothesis_id.clone(),
             run_id: run_id.clone(),
@@ -99,22 +117,7 @@ impl HypothesisManager {
             rocks: self.shared.rocks.clone(),
             files: self.shared.files.clone(),
             sqlite: self.shared.sqlite.clone(),
-            adapter_client: {
-                if let Some(addr) = &adapter_addr {
-                    match crate::adapter::grpc_client::GrpcAdapterClient::connect(addr).await {
-                        Ok(client) => {
-                            info!(addr, "connected to adapter via gRPC");
-                            Some(Box::new(client) as Box<dyn AdapterClient>)
-                        }
-                        Err(e) => {
-                            error!(addr, error = %e, "failed to connect to adapter");
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            },
+            adapter_client,
         };
 
         let handle = tokio::spawn(async move { executor.run().await });
@@ -146,16 +149,13 @@ impl HypothesisManager {
 
             run_state.cancel.cancel();
 
-            // Wait for executor to finish and get reference model back
             match run_state.executor_handle.await {
                 Ok((reference, _reason)) => {
                     self.reference = Some(reference);
                 }
                 Err(e) => {
                     error!(error = %e, "executor task panicked");
-                    // Re-create reference model
-                    self.reference =
-                        Some(crate::reference::create_reference(&self.profile));
+                    self.reference = Some(crate::reference::create_reference(&self.profile));
                 }
             }
         }

@@ -3,11 +3,9 @@ use tonic::{Request, Response, Status};
 use regret_proto::regret_v1::pilot_service_server::PilotService;
 use regret_proto::regret_v1::{RegisterRequest, RegisterResponse};
 
-use crate::adapter::registry::AdapterRegistry;
 use crate::storage::sqlite::SqliteStore;
 
 pub struct PilotServiceImpl {
-    pub registry: AdapterRegistry,
     pub sqlite: SqliteStore,
 }
 
@@ -19,22 +17,15 @@ impl PilotService for PilotServiceImpl {
     ) -> Result<Response<RegisterResponse>, Status> {
         let req = request.into_inner();
 
-        // Validate hypothesis exists
-        match self.sqlite.get_hypothesis(&req.hypothesis_id).await {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                return Ok(Response::new(RegisterResponse { accepted: false }));
-            }
-            Err(e) => {
-                return Err(Status::internal(format!("database error: {e}")));
-            }
-        }
+        tracing::info!(
+            hypothesis_id = %req.hypothesis_id,
+            adapter_name = %req.adapter_name,
+            grpc_addr = %req.grpc_addr,
+            "adapter registration received"
+        );
 
-        // Register adapter
-        self.registry
-            .register(&req.hypothesis_id, &req.adapter_name, &req.grpc_addr)
-            .await;
-
+        // For now, just acknowledge. Adapter definitions are managed via HTTP API.
+        // This RPC serves as a liveness signal from running adapter instances.
         Ok(Response::new(RegisterResponse { accepted: true }))
     }
 }

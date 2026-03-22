@@ -17,7 +17,6 @@ use tracing::info;
 
 use regret_proto::regret_v1::pilot_service_server::PilotServiceServer;
 
-use adapter::registry::AdapterRegistry;
 use app_state::AppState;
 use config::Config;
 use engine::{ManagerRegistry, SharedServices};
@@ -27,7 +26,6 @@ use storage::sqlite::SqliteStore;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Init tracing
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -47,7 +45,6 @@ async fn main() -> Result<()> {
     let sqlite = SqliteStore::new(&config.database_url).await?;
     let rocks = RocksStore::new(Path::new(&config.rocksdb_path))?;
     let files = FileStore::new(Path::new(&config.data_dir));
-    let registry = AdapterRegistry::new();
 
     let shared = SharedServices {
         sqlite: sqlite.clone(),
@@ -70,14 +67,12 @@ async fn main() -> Result<()> {
         sqlite: sqlite.clone(),
         rocks,
         files,
-        registry: registry.clone(),
         managers,
     };
 
     // Start gRPC server
     let grpc_addr: SocketAddr = format!("0.0.0.0:{}", config.grpc_port).parse()?;
     let pilot_service = grpc::PilotServiceImpl {
-        registry,
         sqlite,
     };
 
@@ -100,7 +95,6 @@ async fn main() -> Result<()> {
         axum::serve(listener, app).await.expect("HTTP server failed");
     });
 
-    // Wait for either server to finish
     tokio::select! {
         _ = grpc_handle => {},
         _ = http_handle => {},

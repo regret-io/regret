@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::engine::executor::ProgressInfo;
@@ -73,18 +71,11 @@ fn default_fence_every() -> usize { 50 }
 
 #[derive(Debug, Deserialize)]
 pub struct StartRunRequest {
-    #[serde(default)]
-    pub adapters: Vec<AdapterConfigRequest>,
+    /// Adapter name to use for this run (must be pre-registered via POST /api/adapters).
+    /// If omitted, runs reference model only (no real system verification).
+    pub adapter: Option<String>,
     #[serde(default)]
     pub execution: ExecutionConfigRequest,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AdapterConfigRequest {
-    pub name: String,
-    pub image: String,
-    #[serde(default)]
-    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]

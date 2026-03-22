@@ -12,11 +12,21 @@ pub struct Hypothesis {
     pub id: String,
     pub name: String,
     pub profile: String,
-    pub state_machine: String, // JSON string
-    pub tolerance: Option<String>, // JSON string
+    pub state_machine: String,
+    pub tolerance: Option<String>,
     pub status: String,
     pub created_at: String,
     pub last_run_at: Option<String>,
+}
+
+/// Adapter definition — reusable, not tied to a hypothesis.
+#[derive(Debug, Clone, FromRow)]
+pub struct AdapterRecord {
+    pub id: String,
+    pub name: String,
+    pub image: String,
+    pub env: String, // JSON object
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -38,19 +48,14 @@ pub struct HypothesisResult {
 
 impl SqliteStore {
     pub async fn new(database_url: &str) -> Result<Self> {
-        let options: SqliteConnectOptions = database_url.parse::<SqliteConnectOptions>()?.create_if_missing(true);
+        let options: SqliteConnectOptions =
+            database_url.parse::<SqliteConnectOptions>()?.create_if_missing(true);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(options)
             .await?;
 
-        // Run migrations
-        sqlx::query(include_str!("../../migrations/001_init.sql"))
-            .execute(&pool)
-            .await?;
-
-        // Enable WAL mode and foreign keys
         sqlx::query("PRAGMA journal_mode=WAL")
             .execute(&pool)
             .await?;
@@ -58,8 +63,18 @@ impl SqliteStore {
             .execute(&pool)
             .await?;
 
+        let migration = include_str!("../../migrations/001_init.sql");
+        for statement in migration.split(';') {
+            let trimmed = statement.trim();
+            if !trimmed.is_empty() {
+                sqlx::query(trimmed).execute(&pool).await?;
+            }
+        }
+
         Ok(Self { pool })
     }
+
+    // --- Hypothesis CRUD ---
 
     pub async fn create_hypothesis(
         &self,
@@ -86,27 +101,23 @@ impl SqliteStore {
     }
 
     pub async fn get_hypothesis(&self, id: &str) -> Result<Option<Hypothesis>> {
-        let row = sqlx::query_as::<_, Hypothesis>("SELECT * FROM hypotheses WHERE id = ?")
+        Ok(sqlx::query_as::<_, Hypothesis>("SELECT * FROM hypotheses WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
-            .await?;
-        Ok(row)
+            .await?)
     }
 
     pub async fn get_hypothesis_by_name(&self, name: &str) -> Result<Option<Hypothesis>> {
-        let row = sqlx::query_as::<_, Hypothesis>("SELECT * FROM hypotheses WHERE name = ?")
+        Ok(sqlx::query_as::<_, Hypothesis>("SELECT * FROM hypotheses WHERE name = ?")
             .bind(name)
             .fetch_optional(&self.pool)
-            .await?;
-        Ok(row)
+            .await?)
     }
 
     pub async fn list_hypotheses(&self) -> Result<Vec<Hypothesis>> {
-        let rows =
-            sqlx::query_as::<_, Hypothesis>("SELECT * FROM hypotheses ORDER BY created_at DESC")
-                .fetch_all(&self.pool)
-                .await?;
-        Ok(rows)
+        Ok(sqlx::query_as::<_, Hypothesis>("SELECT * FROM hypotheses ORDER BY created_at DESC")
+            .fetch_all(&self.pool)
+            .await?)
     }
 
     pub async fn delete_hypothesis(&self, id: &str) -> Result<bool> {
@@ -135,6 +146,60 @@ impl SqliteStore {
         Ok(())
     }
 
+    // --- Adapter CRUD (standalone definitions) ---
+
+    pub async fn create_adapter(
+        &self,
+        id: &str,
+        name: &str,
+        image: &str,
+        env_json: &str,
+    ) -> Result<AdapterRecord> {
+        sqlx::query(
+            "INSERT INTO adapters (id, name, image, env) VALUES (?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(image)
+        .bind(env_json)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_adapter_by_name(name)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("failed to read just-created adapter"))
+    }
+
+    pub async fn get_adapter(&self, id: &str) -> Result<Option<AdapterRecord>> {
+        Ok(sqlx::query_as::<_, AdapterRecord>("SELECT * FROM adapters WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
+    pub async fn get_adapter_by_name(&self, name: &str) -> Result<Option<AdapterRecord>> {
+        Ok(sqlx::query_as::<_, AdapterRecord>("SELECT * FROM adapters WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
+    pub async fn list_adapters_all(&self) -> Result<Vec<AdapterRecord>> {
+        Ok(sqlx::query_as::<_, AdapterRecord>("SELECT * FROM adapters ORDER BY created_at DESC")
+            .fetch_all(&self.pool)
+            .await?)
+    }
+
+    pub async fn delete_adapter(&self, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM adapters WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    // --- Results ---
+
     pub async fn create_result(&self, result: &HypothesisResult) -> Result<()> {
         sqlx::query(
             "INSERT INTO hypothesis_results (id, hypothesis_id, run_id, total_batches, total_checkpoints, passed_checkpoints, failed_checkpoints, total_response_ops, failed_response_ops, stop_reason, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -157,25 +222,23 @@ impl SqliteStore {
     }
 
     pub async fn get_results(&self, hypothesis_id: &str) -> Result<Vec<HypothesisResult>> {
-        let rows = sqlx::query_as::<_, HypothesisResult>(
+        Ok(sqlx::query_as::<_, HypothesisResult>(
             "SELECT * FROM hypothesis_results WHERE hypothesis_id = ? ORDER BY created_at DESC",
         )
         .bind(hypothesis_id)
         .fetch_all(&self.pool)
-        .await?;
-        Ok(rows)
+        .await?)
     }
 
     pub async fn get_latest_result(
         &self,
         hypothesis_id: &str,
     ) -> Result<Option<HypothesisResult>> {
-        let row = sqlx::query_as::<_, HypothesisResult>(
+        Ok(sqlx::query_as::<_, HypothesisResult>(
             "SELECT * FROM hypothesis_results WHERE hypothesis_id = ? ORDER BY created_at DESC LIMIT 1",
         )
         .bind(hypothesis_id)
         .fetch_optional(&self.pool)
-        .await?;
-        Ok(row)
+        .await?)
     }
 }

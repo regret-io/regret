@@ -1,3 +1,4 @@
+pub mod adapters;
 pub mod error;
 pub mod health;
 pub mod hypothesis;
@@ -17,10 +18,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/hypothesis/{id}", delete(hypothesis::delete))
         // Origin
         .route("/api/hypothesis/{id}/origin", post(hypothesis::upload_origin))
-        .route(
-            "/api/hypothesis/{id}/generate",
-            post(hypothesis::generate),
-        )
+        .route("/api/hypothesis/{id}/generate", post(hypothesis::generate))
         // Run control
         .route("/api/hypothesis/{id}/run", post(hypothesis::start_run))
         .route("/api/hypothesis/{id}/run", delete(hypothesis::stop_run))
@@ -28,6 +26,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/hypothesis/{id}/status", get(hypothesis::status))
         .route("/api/hypothesis/{id}/events", get(hypothesis::events))
         .route("/api/hypothesis/{id}/bundle", get(hypothesis::bundle))
+        // Adapters (standalone)
+        .route("/api/adapters", post(adapters::create))
+        .route("/api/adapters", get(adapters::list))
+        .route("/api/adapters/{id}", get(adapters::get_one))
+        .route("/api/adapters/{id}", delete(adapters::delete))
         // Health
         .route("/health", get(health::health))
         .route("/metrics", get(health::metrics))

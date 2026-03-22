@@ -5,23 +5,7 @@ metadata:
   labels:
     {{- include "regret.labels" . | nindent 4 }}
 rules:
-  # Manage adapter StatefulSets
-  - apiGroups: ["apps"]
-    resources: ["statefulsets"]
-    verbs: ["create", "get", "list", "watch", "patch", "delete"]
-  # Manage adapter pods
+  # Pilot only needs to read pods for adapter discovery (optional)
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch", "delete"]
-  # Manage adapter Services
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["create", "get", "list", "delete"]
-  # Read nodes for scheduling info
-  - apiGroups: [""]
-    resources: ["nodes"]
     verbs: ["get", "list", "watch"]
-  # Read adapter pod logs
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
