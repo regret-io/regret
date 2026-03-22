@@ -240,7 +240,14 @@ pub async fn start_run(
         return Err(ApiError::Conflict("hypothesis is already running".to_string()));
     }
 
-    let (run_id, _progress) = mgr.start_run(config).await?;
+    // Get adapter address from the first adapter config if available
+    let adapter_addr = req.adapters.first().map(|a| {
+        a.env.get("ADAPTER_ADDR").cloned().unwrap_or_else(|| {
+            format!("{}:9090", a.name)
+        })
+    });
+
+    let (run_id, _progress) = mgr.start_run(config, adapter_addr).await?;
 
     Ok((
         StatusCode::ACCEPTED,

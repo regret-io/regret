@@ -1,0 +1,218 @@
+use std::collections::HashMap;
+
+use anyhow::{Context, Result};
+use bytes::Bytes;
+use prost::Message;
+use tonic::transport::Channel;
+
+use regret_proto::regret_v1::adapter_service_client::AdapterServiceClient;
+use regret_proto::regret_v1::{self as proto};
+
+use crate::engine::executor::AdapterClient;
+use crate::reference::{
+    AdapterBatchResponse, AdapterOpResult, OpKind, Operation, RangeRecord, RecordState,
+};
+
+/// gRPC adapter client that talks to a real adapter.
+pub struct GrpcAdapterClient {
+    client: AdapterServiceClient<Channel>,
+}
+
+impl GrpcAdapterClient {
+    pub async fn connect(addr: &str) -> Result<Self> {
+        let url = if addr.starts_with("http") {
+            addr.to_string()
+        } else {
+            format!("http://{addr}")
+        };
+        let channel = Channel::from_shared(url)?
+            .connect()
+            .await
+            .context("failed to connect to adapter")?;
+        Ok(Self {
+            client: AdapterServiceClient::new(channel),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterClient for GrpcAdapterClient {
+    async fn execute_batch(
+        &self,
+        batch_id: &str,
+        trace_id: &str,
+        ops: &[Operation],
+    ) -> Result<AdapterBatchResponse> {
+        let mut items = Vec::new();
+
+        for op in ops {
+            match &op.kind {
+                OpKind::Fence => {
+                    items.push(proto::Item {
+                        item: Some(proto::item::Item::Fence(proto::Fence {})),
+                    });
+                }
+                _ => {
+                    let (op_type, payload) = serialize_op(&op.kind);
+                    items.push(proto::Item {
+                        item: Some(proto::item::Item::Op(proto::Operation {
+                            op_id: op.id.clone(),
+                            op_type,
+                            payload: payload.into(),
+                        })),
+                    });
+                }
+            }
+        }
+
+        let request = proto::BatchRequest {
+            batch_id: batch_id.to_string(),
+            trace_id: trace_id.to_string(),
+            items,
+        };
+
+        let mut client = self.client.clone();
+        let response = client
+            .execute_batch(request)
+            .await
+            .context("ExecuteBatch RPC failed")?
+            .into_inner();
+
+        // Convert proto response to SDK types
+        let results = response
+            .results
+            .into_iter()
+            .map(|r| {
+                let payload: serde_json::Value = if r.payload.is_empty() {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::from_slice(&r.payload).unwrap_or_default()
+                };
+
+                let op_type = payload
+                    .get("op_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                AdapterOpResult {
+                    op_id: r.op_id,
+                    op: op_type,
+                    status: r.status,
+                    value: payload.get("value").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    version_id: payload.get("version_id").and_then(|v| v.as_u64()),
+                    records: payload.get("records").and_then(|v| {
+                        v.as_array().map(|arr| {
+                            arr.iter()
+                                .filter_map(|r| {
+                                    Some(RangeRecord {
+                                        key: r.get("key")?.as_str()?.to_string(),
+                                        value: r.get("value")?.as_str()?.to_string(),
+                                        version_id: r.get("version_id")?.as_u64()?,
+                                    })
+                                })
+                                .collect()
+                        })
+                    }),
+                    keys: payload.get("keys").and_then(|v| {
+                        v.as_array()
+                            .map(|arr| arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect())
+                    }),
+                    deleted_count: payload.get("deleted_count").and_then(|v| v.as_u64()),
+                    message: if r.message.is_empty() {
+                        None
+                    } else {
+                        Some(r.message)
+                    },
+                }
+            })
+            .collect();
+
+        Ok(AdapterBatchResponse {
+            batch_id: response.batch_id,
+            results,
+        })
+    }
+
+    async fn read_state(
+        &self,
+        keys: &[String],
+    ) -> Result<HashMap<String, Option<RecordState>>> {
+        let request = proto::ReadStateRequest {
+            keys: keys.to_vec(),
+        };
+
+        let mut client = self.client.clone();
+        let response = client
+            .read_state(request)
+            .await
+            .context("ReadState RPC failed")?
+            .into_inner();
+
+        let mut result = HashMap::new();
+        for record in response.records {
+            let state = if record.value.is_some() {
+                let value_bytes = record.value.unwrap();
+                let value_str = String::from_utf8_lossy(&value_bytes).to_string();
+                let version_id = record
+                    .metadata
+                    .get("version_id")
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(0);
+                Some(RecordState {
+                    value: Some(value_str),
+                    version_id,
+                    metadata: record.metadata,
+                })
+            } else {
+                None
+            };
+            result.insert(record.key, state);
+        }
+
+        Ok(result)
+    }
+}
+
+fn serialize_op(kind: &OpKind) -> (String, Vec<u8>) {
+    match kind {
+        OpKind::Put { key, value } => (
+            "put".to_string(),
+            serde_json::to_vec(&serde_json::json!({"key": key, "value": value})).unwrap(),
+        ),
+        OpKind::Delete { key } => (
+            "delete".to_string(),
+            serde_json::to_vec(&serde_json::json!({"key": key})).unwrap(),
+        ),
+        OpKind::DeleteRange { start, end } => (
+            "delete_range".to_string(),
+            serde_json::to_vec(&serde_json::json!({"start": start, "end": end})).unwrap(),
+        ),
+        OpKind::Cas {
+            key,
+            expected_version_id,
+            new_value,
+        } => (
+            "cas".to_string(),
+            serde_json::to_vec(&serde_json::json!({
+                "key": key,
+                "expected_version_id": expected_version_id,
+                "new_value": new_value
+            }))
+            .unwrap(),
+        ),
+        OpKind::Get { key } => (
+            "get".to_string(),
+            serde_json::to_vec(&serde_json::json!({"key": key})).unwrap(),
+        ),
+        OpKind::RangeScan { start, end } => (
+            "range_scan".to_string(),
+            serde_json::to_vec(&serde_json::json!({"start": start, "end": end})).unwrap(),
+        ),
+        OpKind::List { prefix } => (
+            "list".to_string(),
+            serde_json::to_vec(&serde_json::json!({"prefix": prefix})).unwrap(),
+        ),
+        OpKind::Fence => ("fence".to_string(), vec![]),
+    }
+}

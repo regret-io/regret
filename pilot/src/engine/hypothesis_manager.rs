@@ -9,7 +9,7 @@ use tracing::{error, info};
 use crate::reference::{ReferenceModel, Tolerance};
 
 use super::SharedServices;
-use super::executor::{ExecutionConfig, Executor, ProgressInfo, StopReason};
+use super::executor::{AdapterClient, ExecutionConfig, Executor, ProgressInfo, StopReason};
 
 /// Per-hypothesis lifecycle manager.
 /// Created when a hypothesis is created, destroyed when deleted.
@@ -53,10 +53,11 @@ impl HypothesisManager {
         }
     }
 
-    /// Start a new run.
+    /// Start a new run. If adapter_addr is provided, connects via gRPC.
     pub async fn start_run(
         &mut self,
         config: ExecutionConfig,
+        adapter_addr: Option<String>,
     ) -> Result<(String, Arc<RwLock<ProgressInfo>>)> {
         if self.run_state.is_some() {
             anyhow::bail!("hypothesis is already running");
@@ -98,7 +99,22 @@ impl HypothesisManager {
             rocks: self.shared.rocks.clone(),
             files: self.shared.files.clone(),
             sqlite: self.shared.sqlite.clone(),
-            adapter_client: None, // Set by scheduler when adapter is ready
+            adapter_client: {
+                if let Some(addr) = &adapter_addr {
+                    match crate::adapter::grpc_client::GrpcAdapterClient::connect(addr).await {
+                        Ok(client) => {
+                            info!(addr, "connected to adapter via gRPC");
+                            Some(Box::new(client) as Box<dyn AdapterClient>)
+                        }
+                        Err(e) => {
+                            error!(addr, error = %e, "failed to connect to adapter");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            },
         };
 
         let handle = tokio::spawn(async move { executor.run().await });
