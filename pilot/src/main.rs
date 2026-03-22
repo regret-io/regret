@@ -61,6 +61,16 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Seed built-in profiles into SQLite
+    for profile in generator::profiles::list_profiles() {
+        let workload = generator::profiles::get_profile(profile.name);
+        let workload_json = serde_json::to_string(&workload)?;
+        sqlite
+            .upsert_profile(profile.name, profile.description, &workload_json, true)
+            .await?;
+    }
+    info!("built-in profiles seeded");
+
     let shared = SharedServices {
         sqlite: sqlite.clone(),
         rocks: rocks.clone(),

@@ -30,6 +30,15 @@ pub struct AdapterRecord {
 }
 
 #[derive(Debug, Clone, FromRow)]
+pub struct ProfileRecord {
+    pub name: String,
+    pub description: String,
+    pub workload: String, // JSON object
+    pub builtin: i32,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
 pub struct HypothesisResult {
     pub id: String,
     pub hypothesis_id: String,
@@ -193,6 +202,49 @@ impl SqliteStore {
     pub async fn delete_adapter(&self, id: &str) -> Result<bool> {
         let result = sqlx::query("DELETE FROM adapters WHERE id = ?")
             .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    // --- Profiles ---
+
+    pub async fn upsert_profile(
+        &self,
+        name: &str,
+        description: &str,
+        workload_json: &str,
+        builtin: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO profiles (name, description, workload, builtin) VALUES (?, ?, ?, ?)
+             ON CONFLICT(name) DO UPDATE SET description = excluded.description, workload = excluded.workload",
+        )
+        .bind(name)
+        .bind(description)
+        .bind(workload_json)
+        .bind(builtin as i32)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_profile(&self, name: &str) -> Result<Option<ProfileRecord>> {
+        Ok(sqlx::query_as::<_, ProfileRecord>("SELECT * FROM profiles WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
+    pub async fn list_profiles(&self) -> Result<Vec<ProfileRecord>> {
+        Ok(sqlx::query_as::<_, ProfileRecord>("SELECT * FROM profiles ORDER BY builtin DESC, name")
+            .fetch_all(&self.pool)
+            .await?)
+    }
+
+    pub async fn delete_profile(&self, name: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM profiles WHERE name = ? AND builtin = 0")
+            .bind(name)
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
