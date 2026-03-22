@@ -1,0 +1,14 @@
+use crate::adapter::registry::AdapterRegistry;
+use crate::engine::ManagerRegistry;
+use crate::storage::files::FileStore;
+use crate::storage::rocks::RocksStore;
+use crate::storage::sqlite::SqliteStore;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub sqlite: SqliteStore,
+    pub rocks: RocksStore,
+    pub files: FileStore,
+    pub registry: AdapterRegistry,
+    pub managers: ManagerRegistry,
+}
