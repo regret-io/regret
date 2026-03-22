@@ -1,0 +1,74 @@
+syntax = "proto3";
+package regret.v1;
+
+// Called by adapter on startup and after restart.
+service PilotService {
+    rpc RegisterAdapter(RegisterRequest) returns (RegisterResponse);
+}
+
+message RegisterRequest {
+    string hypothesis_id = 1;
+    string adapter_name  = 2;
+    string grpc_addr     = 3;
+}
+
+message RegisterResponse {
+    bool accepted = 1;
+}
+
+// Called by pilot during execution.
+service AdapterService {
+    rpc ExecuteBatch(BatchRequest)    returns (BatchResponse);
+    rpc ReadState(ReadStateRequest)   returns (ReadStateResponse);
+    rpc Cleanup(CleanupRequest)       returns (CleanupResponse);
+}
+
+message BatchRequest {
+    string        batch_id = 1;
+    string        trace_id = 2;
+    repeated Item items    = 3;
+}
+
+message Item {
+    oneof item {
+        Operation op    = 1;
+        Fence     fence = 2;
+    }
+}
+
+message Fence {}
+
+message Operation {
+    string op_id    = 1;
+    string op_type  = 2;  // put | delete | delete_range | cas | get | range_scan | list
+    bytes  payload  = 3;  // op-specific fields serialized as JSON bytes
+}
+
+message BatchResponse {
+    string           batch_id = 1;
+    repeated OpResult results = 2;
+}
+
+message OpResult {
+    string op_id   = 1;
+    string status  = 2;  // ok | not_found | version_mismatch | error
+    bytes  payload = 3;  // result-specific fields serialized as JSON bytes
+    string message = 4;  // populated when status = error
+}
+
+message ReadStateRequest {
+    repeated string keys = 1;
+}
+
+message ReadStateResponse {
+    repeated Record records = 1;
+}
+
+message Record {
+    string              key      = 1;
+    optional bytes      value    = 2;
+    map<string, string> metadata = 3;
+}
+
+message CleanupRequest {}
+message CleanupResponse {}
