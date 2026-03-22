@@ -236,19 +236,14 @@ pub async fn start_run(
     };
 
     // Look up adapter definition if specified
-    let adapter_addr = if let Some(adapter_name) = &req.adapter {
-        let adapter = state
-            .sqlite
-            .get_adapter_by_name(adapter_name)
-            .await?
-            .ok_or_else(|| ApiError::NotFound(format!("adapter '{}' not found", adapter_name)))?;
-        // TODO: deploy adapter via scheduler, for now expect it's already running
-        // Parse env to find the adapter's gRPC address
-        let env: std::collections::HashMap<String, String> =
-            serde_json::from_str(&adapter.env).unwrap_or_default();
-        let addr = env.get("ADAPTER_GRPC_ADDR").cloned()
-            .unwrap_or_else(|| format!("localhost:9090"));
-        Some(addr)
+    let adapter = if let Some(adapter_name) = &req.adapter {
+        Some(
+            state
+                .sqlite
+                .get_adapter_by_name(adapter_name)
+                .await?
+                .ok_or_else(|| ApiError::NotFound(format!("adapter '{}' not found", adapter_name)))?,
+        )
     } else {
         None
     };
@@ -258,7 +253,7 @@ pub async fn start_run(
         return Err(ApiError::Conflict("hypothesis is already running".to_string()));
     }
 
-    let (run_id, _progress) = mgr.start_run(config, adapter_addr).await?;
+    let (run_id, _progress) = mgr.start_run(config, adapter).await?;
 
     Ok((
         StatusCode::ACCEPTED,

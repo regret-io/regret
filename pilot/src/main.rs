@@ -6,6 +6,7 @@ mod engine;
 mod generator;
 mod grpc;
 mod reference;
+mod scheduler;
 mod storage;
 
 use std::net::SocketAddr;
@@ -13,7 +14,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use tonic::transport::Server as TonicServer;
-use tracing::info;
+use tracing::{info, warn};
 
 use regret_proto::regret_v1::pilot_service_server::PilotServiceServer;
 
@@ -46,10 +47,24 @@ async fn main() -> Result<()> {
     let rocks = RocksStore::new(Path::new(&config.rocksdb_path))?;
     let files = FileStore::new(Path::new(&config.data_dir));
 
+    // Try to create K8s scheduler (fails gracefully outside K8s)
+    let pilot_grpc_addr = format!("regret-pilot.{}.svc.cluster.local:{}", config.namespace, config.grpc_port);
+    let scheduler = match scheduler::k8s::K8sScheduler::try_new(&config.namespace, &pilot_grpc_addr).await {
+        Ok(s) => {
+            info!("K8s scheduler initialized");
+            Some(s)
+        }
+        Err(e) => {
+            warn!("K8s scheduler not available (running outside K8s?): {e}");
+            None
+        }
+    };
+
     let shared = SharedServices {
         sqlite: sqlite.clone(),
         rocks: rocks.clone(),
         files: files.clone(),
+        scheduler: scheduler.clone(),
     };
 
     let managers = ManagerRegistry::new(shared);
@@ -68,6 +83,7 @@ async fn main() -> Result<()> {
         rocks,
         files,
         managers,
+        scheduler,
     };
 
     // Start gRPC server

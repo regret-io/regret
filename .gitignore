@@ -4,3 +4,8 @@
 *.swo
 .DS_Store
 .env
+
+# Gradle
+build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
