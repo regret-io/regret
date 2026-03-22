@@ -17,6 +17,12 @@ import type { Hypothesis, RunResult, StatusResponse, ProgressInfo } from "@/lib/
 import { listHypotheses, getResults, getStatus } from "@/lib/api";
 import { Loader2Icon } from "lucide-react";
 
+function formatElapsed(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+}
+
 interface AggregatedRun {
   hypothesis_id: string;
   hypothesis_name: string;
@@ -238,10 +244,11 @@ export default function RunsPage() {
                 <TableHead className="text-zinc-400">Run ID</TableHead>
                 <TableHead className="text-zinc-400">Status</TableHead>
                 <TableHead className="text-zinc-400">Ops</TableHead>
+                <TableHead className="text-zinc-400">Ops/s</TableHead>
+                <TableHead className="text-zinc-400">Elapsed</TableHead>
                 <TableHead className="text-zinc-400">Checkpoints</TableHead>
                 <TableHead className="text-zinc-400">Failures</TableHead>
                 <TableHead className="text-zinc-400">Started</TableHead>
-                <TableHead className="text-zinc-400">Finished</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -264,8 +271,22 @@ export default function RunsPage() {
                   <TableCell>{statusBadge(r)}</TableCell>
                   <TableCell className="font-mono text-zinc-300 text-sm">
                     {r.is_live && r.progress
-                      ? r.progress.completed_ops
-                      : r.total_response_ops}
+                      ? r.progress.completed_ops.toLocaleString()
+                      : r.total_response_ops.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="font-mono text-sm">
+                    {r.is_live && r.progress ? (
+                      <span className="text-blue-400">{Math.round(r.progress.ops_per_sec)}</span>
+                    ) : (
+                      <span className="text-zinc-500">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="font-mono text-sm">
+                    {r.is_live && r.progress ? (
+                      <span className="text-zinc-300">{formatElapsed(r.progress.elapsed_secs)}</span>
+                    ) : (
+                      <span className="text-zinc-500">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="font-mono text-zinc-300 text-sm">
                     {r.is_live && r.progress
@@ -282,13 +303,6 @@ export default function RunsPage() {
                       ? new Date(r.started_at).toLocaleString()
                       : r.is_live
                         ? "now"
-                        : "-"}
-                  </TableCell>
-                  <TableCell className="text-zinc-500 text-xs">
-                    {r.finished_at
-                      ? new Date(r.finished_at).toLocaleString()
-                      : r.is_live && r.live_status === "running"
-                        ? "in progress"
                         : "-"}
                   </TableCell>
                 </TableRow>
