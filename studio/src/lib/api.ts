@@ -159,6 +159,15 @@ export async function createGenerator(body: {
   return request<Generator>("/api/generators", { method: "POST", body: JSON.stringify(body) });
 }
 
+export async function updateGenerator(name: string, body: {
+  name: string;
+  description: string;
+  rate: number;
+  workload: Record<string, number>;
+}): Promise<Generator> {
+  return request<Generator>(`/api/generators/${name}`, { method: "PUT", body: JSON.stringify(body) });
+}
+
 export async function deleteGenerator(name: string): Promise<void> {
   return request<void>(`/api/generators/${name}`, { method: "DELETE" });
 }
