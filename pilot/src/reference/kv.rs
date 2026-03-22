@@ -96,6 +96,23 @@ impl BasicKvReference {
                 self.put_record(key, &rec);
                 self.touched_keys.insert(key.clone());
             }
+            OpKind::EphemeralPut { key, value } => {
+                let mut rec = self.get_record(key).unwrap_or_default();
+                rec.value = Some(value.clone());
+                rec.version_id += 1;
+                self.put_record(key, &rec);
+                self.touched_keys.insert(key.clone());
+            }
+            OpKind::IndexedPut { key, value, .. } => {
+                let mut rec = self.get_record(key).unwrap_or_default();
+                rec.value = Some(value.clone());
+                rec.version_id += 1;
+                self.put_record(key, &rec);
+                self.touched_keys.insert(key.clone());
+            }
+            OpKind::SequencePut { prefix, .. } => {
+                self.touched_keys.insert(prefix.clone());
+            }
             _ => {}
         }
     }
@@ -247,11 +264,28 @@ impl BasicKvReference {
     }
 
     fn is_write(op: &OpKind) -> bool {
-        matches!(op, OpKind::Put { .. } | OpKind::Delete { .. } | OpKind::DeleteRange { .. } | OpKind::Cas { .. })
+        matches!(
+            op,
+            OpKind::Put { .. }
+                | OpKind::Delete { .. }
+                | OpKind::DeleteRange { .. }
+                | OpKind::Cas { .. }
+                | OpKind::EphemeralPut { .. }
+                | OpKind::IndexedPut { .. }
+                | OpKind::SequencePut { .. }
+        )
     }
 
     fn is_read(op: &OpKind) -> bool {
-        matches!(op, OpKind::Get { .. } | OpKind::RangeScan { .. } | OpKind::List { .. })
+        matches!(
+            op,
+            OpKind::Get { .. }
+                | OpKind::RangeScan { .. }
+                | OpKind::List { .. }
+                | OpKind::IndexedGet { .. }
+                | OpKind::IndexedList { .. }
+                | OpKind::IndexedRangeScan { .. }
+        )
     }
 }
 

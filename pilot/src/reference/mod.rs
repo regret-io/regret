@@ -105,13 +105,30 @@ pub struct Operation {
 
 #[derive(Debug, Clone)]
 pub enum OpKind {
+    // Basic KV
     Put { key: String, value: String },
+    Get { key: String },
     Delete { key: String },
     DeleteRange { start: String, end: String },
-    Cas { key: String, expected_version_id: u64, new_value: String },
-    Get { key: String },
-    RangeScan { start: String, end: String },
     List { prefix: String },
+    RangeScan { start: String, end: String },
+
+    // CAS
+    Cas { key: String, expected_version_id: u64, new_value: String },
+
+    // Ephemeral
+    EphemeralPut { key: String, value: String },
+
+    // Secondary index
+    IndexedPut { key: String, value: String, index_name: String, index_key: String },
+    IndexedGet { index_name: String, index_key: String },
+    IndexedList { index_name: String, start: String, end: String },
+    IndexedRangeScan { index_name: String, start: String, end: String },
+
+    // Sequence keys
+    SequencePut { prefix: String, value: String, delta: u64 },
+
+    // Synchronization barrier
     Fence,
 }
 

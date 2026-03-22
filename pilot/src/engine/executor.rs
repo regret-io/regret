@@ -427,12 +427,18 @@ impl Executor {
             .map(|op| {
                 let (status, op_type) = match &op.kind {
                     OpKind::Put { .. } => (OpStatus::Ok, OpType::Put),
+                    OpKind::Get { .. } => (OpStatus::NotFound, OpType::Get),
                     OpKind::Delete { .. } => (OpStatus::Ok, OpType::Delete),
                     OpKind::DeleteRange { .. } => (OpStatus::Ok, OpType::DeleteRange),
-                    OpKind::Cas { .. } => (OpStatus::Ok, OpType::Cas),
-                    OpKind::Get { .. } => (OpStatus::NotFound, OpType::Get),
-                    OpKind::RangeScan { .. } => (OpStatus::Ok, OpType::RangeScan),
                     OpKind::List { .. } => (OpStatus::Ok, OpType::List),
+                    OpKind::RangeScan { .. } => (OpStatus::Ok, OpType::RangeScan),
+                    OpKind::Cas { .. } => (OpStatus::Ok, OpType::Cas),
+                    OpKind::EphemeralPut { .. } => (OpStatus::Ok, OpType::EphemeralPut),
+                    OpKind::IndexedPut { .. } => (OpStatus::Ok, OpType::IndexedPut),
+                    OpKind::IndexedGet { .. } => (OpStatus::NotFound, OpType::IndexedGet),
+                    OpKind::IndexedList { .. } => (OpStatus::Ok, OpType::IndexedList),
+                    OpKind::IndexedRangeScan { .. } => (OpStatus::Ok, OpType::IndexedRangeScan),
+                    OpKind::SequencePut { .. } => (OpStatus::Ok, OpType::SequencePut),
                     OpKind::Fence => return None,
                 };
                 Some(AdapterOpResult {
@@ -481,10 +487,20 @@ fn parse_origin_op(json: &serde_json::Value) -> Option<Operation> {
             key: json.get("key")?.as_str()?.to_string(),
             value: json.get("value")?.as_str()?.to_string(),
         },
+        "get" => OpKind::Get {
+            key: json.get("key")?.as_str()?.to_string(),
+        },
         "delete" => OpKind::Delete {
             key: json.get("key")?.as_str()?.to_string(),
         },
         "delete_range" => OpKind::DeleteRange {
+            start: json.get("start")?.as_str()?.to_string(),
+            end: json.get("end")?.as_str()?.to_string(),
+        },
+        "list" => OpKind::List {
+            prefix: json.get("prefix")?.as_str()?.to_string(),
+        },
+        "range_scan" => OpKind::RangeScan {
             start: json.get("start")?.as_str()?.to_string(),
             end: json.get("end")?.as_str()?.to_string(),
         },
@@ -493,15 +509,34 @@ fn parse_origin_op(json: &serde_json::Value) -> Option<Operation> {
             expected_version_id: json.get("expected_version_id")?.as_u64()?,
             new_value: json.get("new_value")?.as_str()?.to_string(),
         },
-        "get" => OpKind::Get {
+        "ephemeral_put" => OpKind::EphemeralPut {
             key: json.get("key")?.as_str()?.to_string(),
+            value: json.get("value")?.as_str()?.to_string(),
         },
-        "range_scan" => OpKind::RangeScan {
+        "indexed_put" => OpKind::IndexedPut {
+            key: json.get("key")?.as_str()?.to_string(),
+            value: json.get("value")?.as_str()?.to_string(),
+            index_name: json.get("index_name")?.as_str()?.to_string(),
+            index_key: json.get("index_key")?.as_str()?.to_string(),
+        },
+        "indexed_get" => OpKind::IndexedGet {
+            index_name: json.get("index_name")?.as_str()?.to_string(),
+            index_key: json.get("index_key")?.as_str()?.to_string(),
+        },
+        "indexed_list" => OpKind::IndexedList {
+            index_name: json.get("index_name")?.as_str()?.to_string(),
             start: json.get("start")?.as_str()?.to_string(),
             end: json.get("end")?.as_str()?.to_string(),
         },
-        "list" => OpKind::List {
+        "indexed_range_scan" => OpKind::IndexedRangeScan {
+            index_name: json.get("index_name")?.as_str()?.to_string(),
+            start: json.get("start")?.as_str()?.to_string(),
+            end: json.get("end")?.as_str()?.to_string(),
+        },
+        "sequence_put" => OpKind::SequencePut {
             prefix: json.get("prefix")?.as_str()?.to_string(),
+            value: json.get("value")?.as_str()?.to_string(),
+            delta: json.get("delta")?.as_u64().unwrap_or(1),
         },
         _ => return None,
     };

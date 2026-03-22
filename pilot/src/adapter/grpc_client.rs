@@ -217,6 +217,33 @@ fn serialize_op(kind: &OpKind) -> (String, Vec<u8>) {
             "list".to_string(),
             serde_json::to_vec(&serde_json::json!({"prefix": prefix})).unwrap(),
         ),
+        OpKind::EphemeralPut { key, value } => (
+            "ephemeral_put".to_string(),
+            serde_json::to_vec(&serde_json::json!({"key": key, "value": value})).unwrap(),
+        ),
+        OpKind::IndexedPut { key, value, index_name, index_key } => (
+            "indexed_put".to_string(),
+            serde_json::to_vec(&serde_json::json!({
+                "key": key, "value": value,
+                "index_name": index_name, "index_key": index_key
+            })).unwrap(),
+        ),
+        OpKind::IndexedGet { index_name, index_key } => (
+            "indexed_get".to_string(),
+            serde_json::to_vec(&serde_json::json!({"index_name": index_name, "index_key": index_key})).unwrap(),
+        ),
+        OpKind::IndexedList { index_name, start, end } => (
+            "indexed_list".to_string(),
+            serde_json::to_vec(&serde_json::json!({"index_name": index_name, "start": start, "end": end})).unwrap(),
+        ),
+        OpKind::IndexedRangeScan { index_name, start, end } => (
+            "indexed_range_scan".to_string(),
+            serde_json::to_vec(&serde_json::json!({"index_name": index_name, "start": start, "end": end})).unwrap(),
+        ),
+        OpKind::SequencePut { prefix, value, delta } => (
+            "sequence_put".to_string(),
+            serde_json::to_vec(&serde_json::json!({"prefix": prefix, "value": value, "delta": delta})).unwrap(),
+        ),
         OpKind::Fence => ("fence".to_string(), vec![]),
     }
 }
