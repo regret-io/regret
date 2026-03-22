@@ -40,7 +40,7 @@ pub async fn create(
     let hypothesis = state.sqlite.create_hypothesis(
         &id, &req.name, &req.generator,
         req.adapter.as_deref(), req.adapter_addr.as_deref(), req.duration.as_deref(),
-        tolerance_json.as_deref(), &key_space_json, "{}",
+        tolerance_json.as_deref(), req.checkpoint_every, &key_space_json, "{}",
     ).await?;
 
     state.rocks.create_cf(&id)?;
@@ -116,6 +116,7 @@ pub async fn start_run(
     let duration_secs = hypothesis.duration.as_ref().and_then(|d| parse_duration(d));
 
     let config = ExecutionConfig {
+        checkpoint_every: hypothesis.checkpoint_every as usize,
         duration_secs,
         ..ExecutionConfig::default()
     };
@@ -208,6 +209,7 @@ fn to_response(h: &crate::storage::sqlite::Hypothesis) -> HypothesisResponse {
         adapter: h.adapter.clone(),
         adapter_addr: h.adapter_addr.clone(),
         duration: h.duration.clone(),
+        checkpoint_every: h.checkpoint_every,
         tolerance: h.tolerance.as_ref().and_then(|t| serde_json::from_str(t).ok()),
         status: h.status.clone(),
         created_at: h.created_at.clone(),

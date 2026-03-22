@@ -8,19 +8,18 @@ use crate::engine::executor::ProgressInfo;
 pub struct CreateHypothesisRequest {
     pub name: String,
     pub generator: String,
-    /// Adapter name. Omit for reference-only mode.
     pub adapter: Option<String>,
-    /// Override adapter gRPC address (local dev).
     pub adapter_addr: Option<String>,
-    /// Run duration (e.g. "30s", "5m", "1h"). Omit for forever.
     pub duration: Option<String>,
-    /// Tolerance config for verification.
+    #[serde(default = "default_checkpoint_every")]
+    pub checkpoint_every: i32,
     #[serde(default)]
     pub tolerance: Option<serde_json::Value>,
-    /// Key space config override.
     #[serde(default)]
     pub key_space: Option<serde_json::Value>,
 }
+
+fn default_checkpoint_every() -> i32 { 10 }
 
 #[derive(Debug, Serialize)]
 pub struct HypothesisResponse {
@@ -33,6 +32,7 @@ pub struct HypothesisResponse {
     pub adapter_addr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<String>,
+    pub checkpoint_every: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tolerance: Option<serde_json::Value>,
     pub status: String,
@@ -46,7 +46,7 @@ pub struct HypothesisListResponse {
     pub items: Vec<HypothesisResponse>,
 }
 
-// --- Run Control (now just starts — config is on hypothesis) ---
+// --- Run Control ---
 
 #[derive(Debug, Serialize)]
 pub struct StartRunResponse {

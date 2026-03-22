@@ -16,6 +16,7 @@ pub struct Hypothesis {
     pub adapter_addr: Option<String>,
     pub duration: Option<String>,
     pub tolerance: Option<String>,
+    pub checkpoint_every: i64,
     pub key_space: String,
     pub config: String,
     pub status: String,
@@ -99,11 +100,12 @@ impl SqliteStore {
         adapter_addr: Option<&str>,
         duration: Option<&str>,
         tolerance: Option<&str>,
+        checkpoint_every: i32,
         key_space: &str,
         config: &str,
     ) -> Result<Hypothesis> {
         sqlx::query(
-            "INSERT INTO hypotheses (id, name, generator, adapter, adapter_addr, duration, tolerance, key_space, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO hypotheses (id, name, generator, adapter, adapter_addr, duration, tolerance, checkpoint_every, key_space, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(name)
@@ -112,6 +114,7 @@ impl SqliteStore {
         .bind(adapter_addr)
         .bind(duration)
         .bind(tolerance)
+        .bind(checkpoint_every)
         .bind(key_space)
         .bind(config)
         .execute(&self.pool)

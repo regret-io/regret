@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS hypotheses (
     duration      TEXT,
     tolerance     TEXT,
     key_space     TEXT NOT NULL DEFAULT '{}',
+    checkpoint_every INTEGER NOT NULL DEFAULT 10,
     config        TEXT NOT NULL DEFAULT '{}',
     status        TEXT NOT NULL DEFAULT 'idle',
     created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
