@@ -1,7 +1,7 @@
 use chrono::Utc;
 use serde::Serialize;
 
-use crate::reference::{CheckpointFailure, ResponseFailure};
+use crate::reference::{CheckpointFailure, SafetyViolation};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OpRecord {
@@ -49,7 +49,7 @@ pub enum Event {
         error: String,
         timestamp: String,
     },
-    ResponseFailed {
+    SafetyViolation {
         run_id: String,
         batch_id: String,
         op_id: String,
@@ -150,8 +150,8 @@ impl Event {
         }
     }
 
-    pub fn response_failed(run_id: &str, batch_id: &str, failure: &ResponseFailure) -> Self {
-        Event::ResponseFailed {
+    pub fn safety_violation(run_id: &str, batch_id: &str, failure: &SafetyViolation) -> Self {
+        Event::SafetyViolation {
             run_id: run_id.to_string(),
             batch_id: batch_id.to_string(),
             op_id: failure.op_id.clone(),

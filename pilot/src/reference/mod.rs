@@ -35,7 +35,7 @@ pub struct RangeRecord {
 
 /// A failure detected during verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResponseFailure {
+pub struct SafetyViolation {
     pub op_id: String,
     pub op: String,
     pub expected: String,
@@ -149,7 +149,7 @@ pub trait ReferenceModel: Send + Sync {
         ops: &[Operation],
         response: &AdapterBatchResponse,
         tolerance: &Option<Tolerance>,
-    ) -> Vec<ResponseFailure>;
+    ) -> Vec<SafetyViolation>;
 
     /// Layer 2: verify adapter state snapshot against reference state.
     fn verify_checkpoint(

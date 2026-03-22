@@ -178,7 +178,7 @@ pub async fn results(State(state): State<AppState>, Path(id): Path<String>) -> R
         "id": r.id, "run_id": r.run_id, "total_batches": r.total_batches,
         "total_checkpoints": r.total_checkpoints, "passed_checkpoints": r.passed_checkpoints,
         "failed_checkpoints": r.failed_checkpoints, "total_response_ops": r.total_response_ops,
-        "failed_response_ops": r.failed_response_ops, "stop_reason": r.stop_reason,
+        "safety_violations": r.safety_violations, "stop_reason": r.stop_reason,
         "started_at": r.started_at, "finished_at": r.finished_at,
     })).collect();
     Ok(Json(serde_json::json!({ "items": items })))

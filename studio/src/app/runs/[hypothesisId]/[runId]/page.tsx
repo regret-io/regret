@@ -125,7 +125,7 @@ export default function RunDetailPage({
   const checkPassed = progress?.passed_checkpoints ?? result?.passed_checkpoints ?? 0;
   const checkTotal = progress?.total_checkpoints ?? result?.total_checkpoints ?? 0;
   const checkFailed = progress?.failed_checkpoints ?? result?.failed_checkpoints ?? 0;
-  const failures = progress?.failed_response_ops ?? result?.failed_response_ops ?? 0;
+  const failures = progress?.safety_violations ?? result?.safety_violations ?? 0;
 
   return (
     <div className="space-y-6">
@@ -247,7 +247,7 @@ function StatCard({ icon, label, value, highlight, color }: {
 
 function EventRow({ ev }: { ev: EventItem }) {
   const [expanded, setExpanded] = useState(false);
-  const expandable = ev.type === "OperationBatch" || ev.type === "ResponseFailed";
+  const expandable = ev.type === "OperationBatch" || ev.type === "SafetyViolation";
   const ops = ev.type === "OperationBatch" && Array.isArray(ev.ops)
     ? ev.ops as Array<{op_id: string; op_type: string; payload: Record<string, unknown>; status: string}>
     : null;
@@ -255,7 +255,7 @@ function EventRow({ ev }: { ev: EventItem }) {
   return (
     <div>
       <div
-        className={`flex items-center gap-3 px-3 py-2 text-xs ${expandable ? "cursor-pointer hover:bg-zinc-800/50" : ""} ${ev.type === "ResponseFailed" ? "bg-red-500/5" : ""}`}
+        className={`flex items-center gap-3 px-3 py-2 text-xs ${expandable ? "cursor-pointer hover:bg-zinc-800/50" : ""} ${ev.type === "SafetyViolation" ? "bg-red-500/5" : ""}`}
         onClick={() => expandable && setExpanded(!expanded)}
       >
         <span className="font-mono text-zinc-500 w-[75px] shrink-0">
@@ -287,7 +287,7 @@ function EventRow({ ev }: { ev: EventItem }) {
           ))}
         </div>
       )}
-      {expanded && ev.type === "ResponseFailed" && (
+      {expanded && ev.type === "SafetyViolation" && (
         <div className="bg-red-500/5 border-t border-red-800/30 px-4 py-2 space-y-1 font-mono text-xs">
           <div className="text-zinc-400">Op: <span className="text-zinc-200">{ev.op_id} ({ev.op})</span></div>
           <div className="text-emerald-400">Expected: <span className="text-zinc-200">{String(ev.expected)}</span></div>
@@ -309,7 +309,7 @@ function EventBadge({ type }: { type: string }) {
     BatchFailed: "bg-red-500/10 text-red-400 border-red-800",
     CheckpointPassed: "bg-emerald-500/10 text-emerald-400 border-emerald-800",
     CheckpointFailed: "bg-red-500/10 text-red-400 border-red-800",
-    ResponseFailed: "bg-red-500/10 text-red-400 border-red-800",
+    SafetyViolation: "bg-red-500/10 text-red-400 border-red-800",
   };
   return (
     <Badge variant="outline" className={`text-xs font-mono ${colors[type] ?? "border-zinc-700 text-zinc-400"}`}>
@@ -337,8 +337,8 @@ function eventSummary(ev: EventItem): string {
     return parts.join(" | ");
   }
 
-  // ResponseFailed — show the mismatch clearly
-  if (ev.type === "ResponseFailed") {
+  // SafetyViolation — show the mismatch clearly
+  if (ev.type === "SafetyViolation") {
     if (ev.op_id) parts.push(`${ev.op_id}`);
     if (ev.op) parts.push(`${ev.op}`);
     if (ev.expected) parts.push(`expected: ${ev.expected}`);

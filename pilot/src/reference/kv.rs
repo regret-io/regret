@@ -9,7 +9,7 @@ use crate::types::OpType;
 
 use super::{
     AdapterBatchResponse, AdapterOpResult, CheckpointFailure, OpKind, OpStatus, Operation,
-    RangeRecord, RecordState, ReferenceModel, ResponseFailure, Tolerance,
+    RangeRecord, RecordState, ReferenceModel, SafetyViolation, Tolerance,
 };
 
 /// Persisted KV record stored in RocksDB state:{key}.
@@ -134,7 +134,7 @@ impl BasicKvReference {
         op: &Operation,
         result: &AdapterOpResult,
         tolerance: &Option<Tolerance>,
-    ) -> Option<ResponseFailure> {
+    ) -> Option<SafetyViolation> {
         let ignore_version = Self::should_ignore_field("metadata.version_id", tolerance);
 
         let parsed_status = OpStatus::from_str(&result.status).ok();
@@ -145,7 +145,7 @@ impl BasicKvReference {
                 match rec {
                     None => {
                         if parsed_status != Some(OpStatus::NotFound) {
-                            return Some(ResponseFailure {
+                            return Some(SafetyViolation {
                                 op_id: op.id.clone(),
                                 op: OpType::Get.to_string(),
                                 expected: format!("status={}", OpStatus::NotFound),
@@ -155,7 +155,7 @@ impl BasicKvReference {
                     }
                     Some(r) => {
                         if parsed_status != Some(OpStatus::Ok) {
-                            return Some(ResponseFailure {
+                            return Some(SafetyViolation {
                                 op_id: op.id.clone(),
                                 op: OpType::Get.to_string(),
                                 expected: format!("status={}", OpStatus::Ok),
@@ -163,7 +163,7 @@ impl BasicKvReference {
                             });
                         }
                         if result.value.as_ref() != r.value.as_ref() {
-                            return Some(ResponseFailure {
+                            return Some(SafetyViolation {
                                 op_id: op.id.clone(),
                                 op: OpType::Get.to_string(),
                                 expected: format!("value={:?}", r.value),
@@ -173,7 +173,7 @@ impl BasicKvReference {
                         if !ignore_version {
                             if let Some(actual_vid) = result.version_id {
                                 if actual_vid != r.version_id {
-                                    return Some(ResponseFailure {
+                                    return Some(SafetyViolation {
                                         op_id: op.id.clone(),
                                         op: OpType::Get.to_string(),
                                         expected: format!("version_id={}", r.version_id),
@@ -210,7 +210,7 @@ impl BasicKvReference {
 
                 if let Some(actual_records) = &result.records {
                     if actual_records.len() != expected.len() {
-                        return Some(ResponseFailure {
+                        return Some(SafetyViolation {
                             op_id: op.id.clone(),
                             op: OpType::RangeScan.to_string(),
                             expected: format!("{} records", expected.len()),
@@ -223,7 +223,7 @@ impl BasicKvReference {
                             mismatch = true;
                         }
                         if mismatch {
-                            return Some(ResponseFailure {
+                            return Some(SafetyViolation {
                                 op_id: op.id.clone(),
                                 op: OpType::RangeScan.to_string(),
                                 expected: format!("record[{i}]={{key={},value={}}}", exp.key, exp.value),
@@ -249,7 +249,7 @@ impl BasicKvReference {
 
                 if let Some(actual_keys) = &result.keys {
                     if actual_keys != &expected_keys {
-                        return Some(ResponseFailure {
+                        return Some(SafetyViolation {
                             op_id: op.id.clone(),
                             op: OpType::List.to_string(),
                             expected: format!("keys={expected_keys:?}"),
@@ -301,7 +301,7 @@ impl ReferenceModel for BasicKvReference {
         ops: &[Operation],
         response: &AdapterBatchResponse,
         tolerance: &Option<Tolerance>,
-    ) -> Vec<ResponseFailure> {
+    ) -> Vec<SafetyViolation> {
         let mut failures = Vec::new();
 
         let op_map: HashMap<&str, &Operation> = ops

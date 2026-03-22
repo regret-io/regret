@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS hypothesis_results (
     passed_checkpoints   INTEGER NOT NULL DEFAULT 0,
     failed_checkpoints   INTEGER NOT NULL DEFAULT 0,
     total_response_ops   INTEGER NOT NULL DEFAULT 0,
-    failed_response_ops  INTEGER NOT NULL DEFAULT 0,
+    safety_violations    INTEGER NOT NULL DEFAULT 0,
     stop_reason          TEXT,
     started_at           TEXT,
     finished_at          TEXT,

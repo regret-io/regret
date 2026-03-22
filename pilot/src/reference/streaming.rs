@@ -6,7 +6,7 @@ use crate::types::OpType;
 
 use super::{
     AdapterBatchResponse, CheckpointFailure, OpKind, OpStatus, Operation, RecordState,
-    ReferenceModel, ResponseFailure, Tolerance,
+    ReferenceModel, SafetyViolation, Tolerance,
 };
 
 #[derive(Debug, Clone)]
@@ -54,7 +54,7 @@ impl ReferenceModel for BasicStreamingReference {
         ops: &[Operation],
         response: &AdapterBatchResponse,
         _tolerance: &Option<Tolerance>,
-    ) -> Vec<ResponseFailure> {
+    ) -> Vec<SafetyViolation> {
         let mut failures = Vec::new();
 
         let op_map: HashMap<&str, &Operation> = ops
@@ -105,7 +105,7 @@ impl ReferenceModel for BasicStreamingReference {
                             if (*consumed_offset as usize) < msgs.len() {
                                 let expected_msg = &msgs[*consumed_offset as usize];
                                 if result.value.as_deref() != Some(&expected_msg.value) {
-                                    failures.push(ResponseFailure {
+                                    failures.push(SafetyViolation {
                                         op_id: op.id.clone(),
                                         op: OpType::Get.to_string(),
                                         expected: format!("value={:?}", expected_msg.value),

@@ -453,7 +453,7 @@ export default function TemplateDetailPage({
                   <TableHead className="text-zinc-400">Status</TableHead>
                   <TableHead className="text-zinc-400">Total Ops</TableHead>
                   <TableHead className="text-zinc-400">Checkpoints</TableHead>
-                  <TableHead className="text-zinc-400">Failures</TableHead>
+                  <TableHead className="text-zinc-400">Violations</TableHead>
                   <TableHead className="text-zinc-400">Started</TableHead>
                   <TableHead className="text-zinc-400">Finished</TableHead>
                 </TableRow>
@@ -478,8 +478,8 @@ export default function TemplateDetailPage({
                       {status.progress?.passed_checkpoints ?? 0}/{status.progress?.total_checkpoints ?? 0}
                     </TableCell>
                     <TableCell className="font-mono text-sm">
-                      {(status.progress?.failed_response_ops ?? 0) > 0
-                        ? <span className="text-red-400">{status.progress?.failed_response_ops}</span>
+                      {(status.progress?.safety_violations ?? 0) > 0
+                        ? <span className="text-red-400">{status.progress?.safety_violations}</span>
                         : <span className="text-zinc-400">0</span>}
                     </TableCell>
                     <TableCell className="text-zinc-500 text-xs">now</TableCell>
@@ -512,7 +512,7 @@ export default function TemplateDetailPage({
                       </span>
                     </TableCell>
                     <TableCell className="font-mono text-zinc-300">
-                      {r.failed_response_ops}
+                      {r.safety_violations}
                     </TableCell>
                     <TableCell className="text-zinc-500 text-xs">
                       {r.started_at

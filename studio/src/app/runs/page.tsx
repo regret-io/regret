@@ -33,7 +33,7 @@ interface AggregatedRun {
   total_checkpoints: number;
   passed_checkpoints: number;
   failed_checkpoints: number;
-  failed_response_ops: number;
+  safety_violations: number;
   started_at: string | null;
   finished_at: string | null;
   // Live progress fields for active runs
@@ -82,7 +82,7 @@ export default function RunsPage() {
               total_checkpoints: run.total_checkpoints,
               passed_checkpoints: run.passed_checkpoints,
               failed_checkpoints: run.failed_checkpoints,
-              failed_response_ops: run.failed_response_ops,
+              safety_violations: run.safety_violations,
               started_at: run.started_at,
               finished_at: run.finished_at,
               is_live: false,
@@ -116,7 +116,7 @@ export default function RunsPage() {
               total_checkpoints: st.progress?.total_checkpoints ?? 0,
               passed_checkpoints: st.progress?.passed_checkpoints ?? 0,
               failed_checkpoints: st.progress?.failed_checkpoints ?? 0,
-              failed_response_ops: st.progress?.failed_response_ops ?? 0,
+              safety_violations: st.progress?.safety_violations ?? 0,
               started_at: null,
               finished_at: null,
               is_live: true,
@@ -247,7 +247,7 @@ export default function RunsPage() {
                 <TableHead className="text-zinc-400 w-[70px] text-right">Ops/s</TableHead>
                 <TableHead className="text-zinc-400 w-[80px] text-right">Elapsed</TableHead>
                 <TableHead className="text-zinc-400 w-[100px] text-right">Checkpoints</TableHead>
-                <TableHead className="text-zinc-400 w-[70px] text-right">Failures</TableHead>
+                <TableHead className="text-zinc-400 w-[70px] text-right">Violations</TableHead>
                 <TableHead className="text-zinc-400 w-[120px]">Started</TableHead>
               </TableRow>
             </TableHeader>
@@ -298,8 +298,8 @@ export default function RunsPage() {
                   </TableCell>
                   <TableCell className="font-mono text-zinc-300 text-sm text-right">
                     {r.is_live && r.progress
-                      ? r.progress.failed_response_ops
-                      : r.failed_response_ops}
+                      ? r.progress.safety_violations
+                      : r.safety_violations}
                   </TableCell>
                   <TableCell className="text-zinc-500 text-xs">
                     {r.started_at

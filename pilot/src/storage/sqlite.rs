@@ -54,7 +54,7 @@ pub struct HypothesisResult {
     pub passed_checkpoints: i64,
     pub failed_checkpoints: i64,
     pub total_response_ops: i64,
-    pub failed_response_ops: i64,
+    pub safety_violations: i64,
     pub stop_reason: Option<String>,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
@@ -290,7 +290,7 @@ impl SqliteStore {
 
     pub async fn create_result(&self, result: &HypothesisResult) -> Result<()> {
         sqlx::query(
-            "INSERT INTO hypothesis_results (id, hypothesis_id, run_id, total_batches, total_checkpoints, passed_checkpoints, failed_checkpoints, total_response_ops, failed_response_ops, stop_reason, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO hypothesis_results (id, hypothesis_id, run_id, total_batches, total_checkpoints, passed_checkpoints, failed_checkpoints, total_response_ops, safety_violations, stop_reason, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&result.id)
         .bind(&result.hypothesis_id)
@@ -300,7 +300,7 @@ impl SqliteStore {
         .bind(result.passed_checkpoints)
         .bind(result.failed_checkpoints)
         .bind(result.total_response_ops)
-        .bind(result.failed_response_ops)
+        .bind(result.safety_violations)
         .bind(&result.stop_reason)
         .bind(&result.started_at)
         .bind(&result.finished_at)

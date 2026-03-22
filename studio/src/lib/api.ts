@@ -22,7 +22,7 @@ export interface ProgressInfo {
   total_checkpoints: number;
   passed_checkpoints: number;
   failed_checkpoints: number;
-  failed_response_ops: number;
+  safety_violations: number;
   elapsed_secs: number;
   ops_per_sec: number;
 }
@@ -42,7 +42,7 @@ export interface RunResult {
   passed_checkpoints: number;
   failed_checkpoints: number;
   total_response_ops: number;
-  failed_response_ops: number;
+  safety_violations: number;
   stop_reason: string;
   started_at: string | null;
   finished_at: string | null;

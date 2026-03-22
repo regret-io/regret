@@ -47,7 +47,7 @@ pub struct ProgressInfo {
     pub total_checkpoints: usize,
     pub passed_checkpoints: usize,
     pub failed_checkpoints: usize,
-    pub failed_response_ops: usize,
+    pub safety_violations: usize,
     pub elapsed_secs: u64,
     pub ops_per_sec: f64,
 }
@@ -55,7 +55,7 @@ pub struct ProgressInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StopReason {
     Completed,
-    ResponseFailed,
+    SafetyViolation,
     CheckpointFailed,
     Stopped,
     Error(String),
@@ -65,7 +65,7 @@ impl StopReason {
     pub fn as_str(&self) -> &str {
         match self {
             StopReason::Completed => "completed",
-            StopReason::ResponseFailed => "response_failed",
+            StopReason::SafetyViolation => "safety_violation",
             StopReason::CheckpointFailed => "checkpoint_failed",
             StopReason::Stopped => "stopped",
             StopReason::Error(_) => "error",
@@ -117,7 +117,7 @@ impl Executor {
         let progress = self.progress.read().await.clone();
         let pass_rate = if progress.total_checkpoints > 0 {
             progress.passed_checkpoints as f64 / progress.total_checkpoints as f64
-        } else if progress.failed_response_ops == 0 { 1.0 } else { 0.0 };
+        } else if progress.safety_violations == 0 { 1.0 } else { 0.0 };
 
         let result_record = HypothesisResult {
             id: uuid::Uuid::now_v7().to_string(),
@@ -128,14 +128,14 @@ impl Executor {
             passed_checkpoints: progress.passed_checkpoints as i64,
             failed_checkpoints: progress.failed_checkpoints as i64,
             total_response_ops: progress.completed_ops as i64,
-            failed_response_ops: progress.failed_response_ops as i64,
+            safety_violations: progress.safety_violations as i64,
             stop_reason: Some(stop_reason.as_str().to_string()),
             started_at: None, finished_at: Some(Event::now()), created_at: Event::now(),
         };
         let _ = self.sqlite.create_result(&result_record).await;
 
         let status = match &stop_reason {
-            StopReason::Completed if progress.failed_response_ops == 0 && progress.failed_checkpoints == 0 => HypothesisStatus::Passed,
+            StopReason::Completed if progress.safety_violations == 0 && progress.failed_checkpoints == 0 => HypothesisStatus::Passed,
             StopReason::Stopped => HypothesisStatus::Stopped,
             _ => HypothesisStatus::Failed,
         };
@@ -247,13 +247,13 @@ impl Executor {
                 self.emit_event(Event::batch_completed(&self.run_id, &batch_id, duration_ms));
                 if !failures.is_empty() {
                     let mut p = self.progress.write().await;
-                    p.failed_response_ops += failures.len();
+                    p.safety_violations += failures.len();
                     drop(p);
                     for f in &failures {
-                        self.emit_event(Event::response_failed(&self.run_id, &batch_id, f));
+                        self.emit_event(Event::safety_violation(&self.run_id, &batch_id, f));
                     }
                     if self.config.fail_fast {
-                        return Ok(StopReason::ResponseFailed);
+                        return Ok(StopReason::SafetyViolation);
                     }
                 }
 
