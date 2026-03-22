@@ -5,7 +5,7 @@ pub mod health;
 pub mod hypothesis;
 pub mod models;
 
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::Router;
 
 use crate::app_state::AppState;
@@ -34,6 +34,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/generators", get(generators::list))
         .route("/api/generators", post(generators::create))
         .route("/api/generators/{name}", get(generators::get_one))
+        .route("/api/generators/{name}", put(generators::update))
         .route("/api/generators/{name}", delete(generators::delete))
         // Health
         .route("/health", get(health::health))

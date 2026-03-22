@@ -73,6 +73,27 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(to_response(&record))))
 }
 
+pub async fn update(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(req): Json<CreateGeneratorRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.sqlite.get_generator(&name).await?
+        .ok_or_else(|| ApiError::NotFound(format!("generator '{name}' not found")))?;
+
+    let workload_json = serde_json::to_string(&req.workload)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    // Upsert allows updating both builtin and custom generators
+    let builtin = state.sqlite.get_generator(&name).await?.map(|g| g.builtin != 0).unwrap_or(false);
+    state.sqlite.upsert_generator(&name, &req.description, &workload_json, req.rate, builtin).await?;
+
+    let record = state.sqlite.get_generator(&name).await?
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("failed to read updated generator")))?;
+
+    Ok(Json(to_response(&record)))
+}
+
 pub async fn delete(
     State(state): State<AppState>,
     Path(name): Path<String>,

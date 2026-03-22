@@ -63,7 +63,10 @@ impl HypothesisManager {
         adapter: Option<AdapterRecord>,
         adapter_addr_override: Option<String>,
     ) -> Result<(String, Arc<RwLock<ProgressInfo>>)> {
-        if self.run_state.is_some() {
+        // Clean up any finished run before starting a new one
+        self.cleanup_finished_run().await;
+
+        if self.is_running() {
             anyhow::bail!("hypothesis is already running");
         }
 
@@ -164,7 +167,27 @@ impl HypothesisManager {
     }
 
     pub fn is_running(&self) -> bool {
-        self.run_state.is_some()
+        match &self.run_state {
+            Some(state) => !state.executor_handle.is_finished(),
+            None => false,
+        }
+    }
+
+    /// Clean up finished run state. Call before start_run.
+    pub async fn cleanup_finished_run(&mut self) {
+        if let Some(state) = &self.run_state {
+            if state.executor_handle.is_finished() {
+                let run_state = self.run_state.take().unwrap();
+                match run_state.executor_handle.await {
+                    Ok((reference, _)) => { self.reference = Some(reference); }
+                    Err(_) => {
+                        self.reference = Some(crate::reference::create_reference(
+                            &self.generator_name, self.shared.rocks.clone(), self.hypothesis_id.clone(),
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     pub fn run_id(&self) -> Option<&str> {

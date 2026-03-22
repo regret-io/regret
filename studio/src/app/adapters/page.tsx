@@ -24,7 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Adapter } from "@/lib/api";
 import { listAdapters, createAdapter } from "@/lib/api";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, Loader2Icon } from "lucide-react";
 
 export default function AdaptersPage() {
   const [adapters, setAdapters] = useState<Adapter[]>([]);
@@ -72,13 +72,15 @@ export default function AdaptersPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Adapters</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-zinc-100">
+          Adapters
+        </h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger render={<Button />}>
             <PlusIcon className="size-4 mr-1" />
             New Adapter
           </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-md bg-zinc-900 border-zinc-800">
             <DialogHeader>
               <DialogTitle>New Adapter</DialogTitle>
             </DialogHeader>
@@ -129,40 +131,46 @@ export default function AdaptersPage() {
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
+        <div className="flex items-center justify-center py-12">
+          <Loader2Icon className="size-5 animate-spin text-zinc-500" />
+        </div>
       ) : adapters.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-zinc-500">
           No adapters yet. Create one to get started.
         </p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Image</TableHead>
-              <TableHead>Env</TableHead>
-              <TableHead>Created</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {adapters.map((a) => (
-              <TableRow key={a.id}>
-                <TableCell className="font-medium">{a.name}</TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">
-                  {a.image}
-                </TableCell>
-                <TableCell>
-                  <code className="text-xs bg-muted px-1.5 py-0.5 rounded max-w-[200px] truncate block">
-                    {JSON.stringify(a.env)}
-                  </code>
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {new Date(a.created_at).toLocaleDateString()}
-                </TableCell>
+        <div className="rounded-lg border border-zinc-800 overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-zinc-800 hover:bg-transparent">
+                <TableHead className="text-zinc-400">Name</TableHead>
+                <TableHead className="text-zinc-400">Image</TableHead>
+                <TableHead className="text-zinc-400">Env</TableHead>
+                <TableHead className="text-zinc-400">Created</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {adapters.map((a) => (
+                <TableRow key={a.id} className="border-zinc-800">
+                  <TableCell className="font-medium text-zinc-100">
+                    {a.name}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-zinc-400">
+                    {a.image}
+                  </TableCell>
+                  <TableCell>
+                    <code className="text-xs bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded max-w-[200px] truncate block">
+                      {JSON.stringify(a.env)}
+                    </code>
+                  </TableCell>
+                  <TableCell className="text-zinc-500">
+                    {new Date(a.created_at).toLocaleDateString()}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );
