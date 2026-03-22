@@ -12,17 +12,10 @@ import regret.v1.Regret;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * gRPC server that bridges proto messages to the user's {@link Adapter} implementation.
- * The pilot connects to this server by service name — no registration needed.
- */
 public class RegretAdapterServer {
 
     private static final Logger LOG = LoggerFactory.getLogger(RegretAdapterServer.class);
 
-    /**
-     * Start the adapter gRPC server on port 9090.
-     */
     public static void serve(Adapter adapter) throws Exception {
         int port = 9090;
 
@@ -35,11 +28,6 @@ public class RegretAdapterServer {
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOG.info("Shutting down adapter server");
-            try {
-                adapter.cleanup();
-            } catch (Exception e) {
-                LOG.error("Cleanup failed", e);
-            }
             server.shutdown();
         }));
 
@@ -82,16 +70,12 @@ public class RegretAdapterServer {
                         .setBatchId(sdkResponse.batchId());
 
                 for (OpResult result : sdkResponse.results()) {
-                    Regret.OpResult.Builder opResultBuilder = Regret.OpResult.newBuilder()
+                    Regret.OpResult.Builder b = Regret.OpResult.newBuilder()
                             .setOpId(result.opId())
                             .setStatus(result.status());
-                    if (result.payload() != null) {
-                        opResultBuilder.setPayload(ByteString.copyFrom(result.payload()));
-                    }
-                    if (result.message() != null) {
-                        opResultBuilder.setMessage(result.message());
-                    }
-                    responseBuilder.addResults(opResultBuilder.build());
+                    if (result.payload() != null) b.setPayload(ByteString.copyFrom(result.payload()));
+                    if (result.message() != null) b.setMessage(result.message());
+                    responseBuilder.addResults(b.build());
                 }
 
                 responseObserver.onNext(responseBuilder.build());
@@ -110,28 +94,17 @@ public class RegretAdapterServer {
         public void readState(
                 Regret.ReadStateRequest request,
                 StreamObserver<Regret.ReadStateResponse> responseObserver) {
-
             try {
                 List<Record> records = adapter.readState(request.getKeyPrefix());
-
-                Regret.ReadStateResponse.Builder responseBuilder =
-                        Regret.ReadStateResponse.newBuilder();
-
+                Regret.ReadStateResponse.Builder b = Regret.ReadStateResponse.newBuilder();
                 for (Record record : records) {
-                    Regret.Record.Builder recBuilder = Regret.Record.newBuilder()
-                            .setKey(record.getKey());
-                    if (record.getValue() != null) {
-                        recBuilder.setValue(ByteString.copyFrom(record.getValue()));
-                    }
-                    if (record.getMetadata() != null) {
-                        recBuilder.putAllMetadata(record.getMetadata());
-                    }
-                    responseBuilder.addRecords(recBuilder.build());
+                    Regret.Record.Builder rb = Regret.Record.newBuilder().setKey(record.getKey());
+                    if (record.getValue() != null) rb.setValue(ByteString.copyFrom(record.getValue()));
+                    if (record.getMetadata() != null) rb.putAllMetadata(record.getMetadata());
+                    b.addRecords(rb.build());
                 }
-
-                responseObserver.onNext(responseBuilder.build());
+                responseObserver.onNext(b.build());
                 responseObserver.onCompleted();
-
             } catch (Exception e) {
                 LOG.error("readState failed", e);
                 responseObserver.onError(
@@ -144,7 +117,7 @@ public class RegretAdapterServer {
                 Regret.CleanupRequest request,
                 StreamObserver<Regret.CleanupResponse> responseObserver) {
             try {
-                adapter.cleanup();
+                adapter.cleanup(request.getKeyPrefix());
                 responseObserver.onNext(Regret.CleanupResponse.newBuilder().build());
                 responseObserver.onCompleted();
             } catch (Exception e) {

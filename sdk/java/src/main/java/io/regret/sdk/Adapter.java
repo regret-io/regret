@@ -18,12 +18,12 @@ public interface Adapter {
     /**
      * Read all records under the given key prefix.
      * Called by regret-pilot during checkpoint verification.
-     * Uses range scan to retrieve all keys matching the prefix.
      */
     List<Record> readState(String keyPrefix) throws Exception;
 
     /**
-     * Optional cleanup. Called when run ends or pilot deletes the adapter.
+     * Cleanup data under the given key prefix.
+     * Called when the pilot deletes a hypothesis.
      */
-    default void cleanup() throws Exception {}
+    default void cleanup(String keyPrefix) throws Exception {}
 }

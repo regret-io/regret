@@ -215,97 +215,81 @@ impl Executor {
             progress.total_batches = (total_ops + self.config.batch_size - 1) / self.config.batch_size;
         }
 
-        // 5. Main loop
+        // 5. Main loop — read ops in chunks, split at fence boundaries into sub-batches.
+        //    Each sub-batch contains either writes (before fence) or reads (after fence),
+        //    ensuring the adapter's concurrent execution doesn't cause non-determinism.
         let mut offset = 0usize;
         let mut batch_counter = 0usize;
         let mut checkpoint_counter = 0usize;
 
         while offset < total_ops {
-            // Check cancellation
             if self.cancel.is_cancelled() {
                 return Ok(StopReason::Stopped);
             }
 
-            // Read next batch from RocksDB
-            let batch_data = self
+            // Read a chunk of ops from RocksDB
+            let chunk_data = self
                 .rocks
                 .read_origin_batch(&self.hypothesis_id, offset, self.config.batch_size)
                 .context("failed to read origin batch")?;
 
-            if batch_data.is_empty() {
+            if chunk_data.is_empty() {
                 break;
             }
 
-            let batch_size = batch_data.len();
-            let batch_id = format!("batch-{batch_counter:04}");
+            let chunk_size = chunk_data.len();
 
-            // Parse operations
-            let mut ops = Vec::new();
-            for data in &batch_data {
+            // Parse all ops in the chunk
+            let mut all_ops = Vec::new();
+            for data in &chunk_data {
                 let json: serde_json::Value = serde_json::from_slice(data)?;
                 if let Some(op) = parse_origin_op(&json) {
-                    ops.push(op);
+                    all_ops.push(op);
                 }
             }
 
-            self.emit_event(Event::batch_started(&self.run_id, &batch_id, offset, batch_size));
-            let batch_start = Instant::now();
-
-            // 1. Send batch to adapter
-            let adapter_response = if let Some(client) = &self.adapter_client {
-                match self.execute_with_retry(client.as_ref(), &batch_id, &ops).await {
-                    Ok(resp) => Some(resp),
-                    Err(e) => {
-                        self.emit_event(Event::batch_failed(
-                            &self.run_id,
-                            &batch_id,
-                            self.config.max_retry_attempts,
-                            &e.to_string(),
-                        ));
-                        return Ok(StopReason::Error(e.to_string()));
+            // Split at fence boundaries into sub-batches:
+            // [writes...] [fence] [reads...] [writes...] [fence] [reads...]
+            // Each segment (writes or reads between fences) becomes one batch.
+            let mut sub_batch = Vec::new();
+            for op in all_ops {
+                let is_fence = matches!(op.kind, OpKind::Fence);
+                if is_fence {
+                    // Send accumulated sub-batch before the fence
+                    if !sub_batch.is_empty() {
+                        let result = self
+                            .execute_sub_batch(&mut batch_counter, offset, &sub_batch)
+                            .await?;
+                        if result != StopReason::Completed && self.config.fail_fast {
+                            return Ok(result);
+                        }
                     }
+                    sub_batch.clear();
+                } else {
+                    sub_batch.push(op);
                 }
-            } else {
-                // No adapter — apply writes directly to reference for local testing
-                self.reference.process_response(&ops, &self.build_mock_response(&ops), &self.tolerance);
-                None
-            };
+            }
 
-            let duration_ms = batch_start.elapsed().as_millis() as u64;
-            self.emit_event(Event::batch_completed(&self.run_id, &batch_id, duration_ms));
-
-            // 2. Reference processes response:
-            //    - Successful writes → update reference state
-            //    - Reads → verify against reference state → failures
-            if let Some(response) = &adapter_response {
-                let failures = self.reference.process_response(&ops, response, &self.tolerance);
-                if !failures.is_empty() {
-                    let mut progress = self.progress.write().await;
-                    progress.failed_response_ops += failures.len();
-                    drop(progress);
-
-                    for failure in &failures {
-                        self.emit_event(Event::response_failed(&self.run_id, &batch_id, failure));
-                    }
-
-                    if self.config.fail_fast {
-                        return Ok(StopReason::ResponseFailed);
-                    }
+            // Send remaining ops after the last fence
+            if !sub_batch.is_empty() {
+                let result = self
+                    .execute_sub_batch(&mut batch_counter, offset, &sub_batch)
+                    .await?;
+                if result != StopReason::Completed && self.config.fail_fast {
+                    return Ok(result);
                 }
             }
 
             // Update progress
             {
                 let mut progress = self.progress.write().await;
-                progress.completed_ops += batch_size;
-                progress.completed_batches += 1;
+                progress.completed_ops += chunk_size;
             }
 
-            offset += batch_size;
-            batch_counter += 1;
+            offset += chunk_size;
 
-            // Layer 2: Checkpoint
-            if batch_counter % self.config.checkpoint_every == 0 {
+            // Layer 2: Checkpoint every N batches
+            if batch_counter > 0 && batch_counter % self.config.checkpoint_every == 0 {
                 checkpoint_counter += 1;
                 let checkpoint_result = self.run_checkpoint(checkpoint_counter).await?;
                 if checkpoint_result == StopReason::CheckpointFailed && self.config.fail_fast {
@@ -385,6 +369,65 @@ impl Executor {
                 Ok(StopReason::Completed)
             }
         }
+    }
+
+    /// Execute a sub-batch (ops between two fences) against the adapter and reference.
+    async fn execute_sub_batch(
+        &mut self,
+        batch_counter: &mut usize,
+        offset: usize,
+        ops: &[Operation],
+    ) -> Result<StopReason> {
+        let batch_id = format!("batch-{:04}", *batch_counter);
+        *batch_counter += 1;
+
+        self.emit_event(Event::batch_started(&self.run_id, &batch_id, offset, ops.len()));
+        let batch_start = Instant::now();
+
+        let adapter_response = if let Some(client) = &self.adapter_client {
+            match self.execute_with_retry(client.as_ref(), &batch_id, ops).await {
+                Ok(resp) => Some(resp),
+                Err(e) => {
+                    self.emit_event(Event::batch_failed(
+                        &self.run_id,
+                        &batch_id,
+                        self.config.max_retry_attempts,
+                        &e.to_string(),
+                    ));
+                    return Ok(StopReason::Error(e.to_string()));
+                }
+            }
+        } else {
+            self.reference.process_response(ops, &self.build_mock_response(ops), &self.tolerance);
+            None
+        };
+
+        let duration_ms = batch_start.elapsed().as_millis() as u64;
+        self.emit_event(Event::batch_completed(&self.run_id, &batch_id, duration_ms));
+
+        if let Some(response) = &adapter_response {
+            let failures = self.reference.process_response(ops, response, &self.tolerance);
+            if !failures.is_empty() {
+                let mut progress = self.progress.write().await;
+                progress.failed_response_ops += failures.len();
+                drop(progress);
+
+                for failure in &failures {
+                    self.emit_event(Event::response_failed(&self.run_id, &batch_id, failure));
+                }
+
+                if self.config.fail_fast {
+                    return Ok(StopReason::ResponseFailed);
+                }
+            }
+        }
+
+        {
+            let mut progress = self.progress.write().await;
+            progress.completed_batches += 1;
+        }
+
+        Ok(StopReason::Completed)
     }
 
     async fn execute_with_retry(

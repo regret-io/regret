@@ -1,11 +1,10 @@
 syntax = "proto3";
 package regret.v1;
 
-// Called by pilot during execution.
 service AdapterService {
-    rpc ExecuteBatch(BatchRequest)    returns (BatchResponse);
-    rpc ReadState(ReadStateRequest)   returns (ReadStateResponse);
-    rpc Cleanup(CleanupRequest)       returns (CleanupResponse);
+    rpc ExecuteBatch(BatchRequest) returns (BatchResponse);
+    rpc ReadState(ReadStateRequest) returns (ReadStateResponse);
+    rpc Cleanup(CleanupRequest) returns (CleanupResponse);
 }
 
 message BatchRequest {
@@ -24,9 +23,9 @@ message Item {
 message Fence {}
 
 message Operation {
-    string op_id    = 1;
-    string op_type  = 2;  // put | delete | delete_range | cas | get | range_scan | list
-    bytes  payload  = 3;  // op-specific fields serialized as JSON bytes
+    string op_id   = 1;
+    string op_type = 2;
+    bytes  payload = 3;
 }
 
 message BatchResponse {
@@ -37,12 +36,12 @@ message BatchResponse {
 message OpResult {
     string op_id   = 1;
     string status  = 2;  // ok | not_found | version_mismatch | error
-    bytes  payload = 3;  // result-specific fields serialized as JSON bytes
-    string message = 4;  // populated when status = error
+    bytes  payload = 3;
+    string message = 4;
 }
 
 message ReadStateRequest {
-    string key_prefix = 1;  // scan all keys under this prefix
+    string key_prefix = 1;
 }
 
 message ReadStateResponse {
@@ -55,5 +54,8 @@ message Record {
     map<string, string> metadata = 3;
 }
 
-message CleanupRequest {}
+message CleanupRequest {
+    string key_prefix = 1;
+}
+
 message CleanupResponse {}

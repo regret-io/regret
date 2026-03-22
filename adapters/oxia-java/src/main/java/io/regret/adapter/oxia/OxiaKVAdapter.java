@@ -210,7 +210,8 @@ public class OxiaKVAdapter implements Adapter {
     }
 
     @Override
-    public void cleanup() throws Exception {
+    public void cleanup(String keyPrefix) throws Exception {
+        client.deleteRange(keyPrefix, keyPrefix + "\uffff");
         client.close();
     }
 
