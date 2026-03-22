@@ -1,0 +1,26 @@
+image:
+  repository: regret/pilot
+  tag: latest
+  pullPolicy: IfNotPresent
+
+storage:
+  size: 20Gi
+  storageClass: ""
+
+service:
+  httpPort: 8080
+  grpcPort: 9090
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+# Namespace where adapter pods will be deployed
+adapterNamespace: ""  # defaults to release namespace
+
+# Pilot gRPC address for adapter registration (auto-configured)
+pilotGrpcAddr: ""
