@@ -49,3 +49,4 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 zip = "2"
 rand = "0.8"
+async-trait = "0.1"
