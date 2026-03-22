@@ -92,58 +92,41 @@ impl HypothesisManager {
             )
             .await?;
 
-        // Deploy adapter and connect
+        // Connect to adapter by service name
         let mut adapter_name_for_teardown: Option<String> = None;
         let adapter_client: Option<Box<dyn AdapterClient>> = if let Some(adapter_def) = &adapter {
             adapter_name_for_teardown = Some(adapter_def.name.clone());
 
-            if let Some(scheduler) = &self.shared.scheduler {
-                // Deploy via K8s scheduler
+            // Derive gRPC address: {adapter-name}.{namespace}.svc:9090
+            let addr = if let Some(scheduler) = &self.shared.scheduler {
+                // In K8s — deploy the adapter pod, then connect by service name
                 info!(
                     hypothesis_id = %self.hypothesis_id,
                     adapter = %adapter_def.name,
                     image = %adapter_def.image,
                     "deploying adapter pod"
                 );
-
                 let grpc_addr = scheduler
                     .deploy_adapter(&self.hypothesis_id, adapter_def)
                     .await?;
-
-                // Wait for pod to be ready
                 scheduler
                     .wait_for_ready(&self.hypothesis_id, &adapter_def.name, Duration::from_secs(120))
                     .await?;
-
-                // Connect via gRPC
-                match crate::adapter::grpc_client::GrpcAdapterClient::connect(&grpc_addr).await {
-                    Ok(client) => {
-                        info!(adapter = %adapter_def.name, %grpc_addr, "connected to adapter");
-                        Some(Box::new(client) as Box<dyn AdapterClient>)
-                    }
-                    Err(e) => {
-                        error!(adapter = %adapter_def.name, %grpc_addr, error = %e, "failed to connect");
-                        // Teardown the failed deployment
-                        let _ = scheduler.teardown_adapter(&self.hypothesis_id, &adapter_def.name).await;
-                        return Err(e.context("failed to connect to deployed adapter"));
-                    }
-                }
+                grpc_addr
             } else {
-                // No scheduler (local dev) — try direct connect via ADAPTER_GRPC_ADDR env
-                let env: std::collections::HashMap<String, String> =
-                    serde_json::from_str(&adapter_def.env).unwrap_or_default();
-                let addr = env
-                    .get("ADAPTER_GRPC_ADDR")
-                    .cloned()
-                    .unwrap_or_else(|| "localhost:9090".to_string());
+                // Local dev — use adapter name as localhost service
+                format!("{}:9090", adapter_def.name)
+            };
 
-                info!(adapter = %adapter_def.name, %addr, "connecting to adapter (no scheduler)");
-                match crate::adapter::grpc_client::GrpcAdapterClient::connect(&addr).await {
-                    Ok(client) => Some(Box::new(client) as Box<dyn AdapterClient>),
-                    Err(e) => {
-                        warn!(adapter = %adapter_def.name, %addr, error = %e, "failed to connect, running without adapter");
-                        None
+            info!(adapter = %adapter_def.name, %addr, "connecting to adapter");
+            match crate::adapter::grpc_client::GrpcAdapterClient::connect(&addr).await {
+                Ok(client) => Some(Box::new(client) as Box<dyn AdapterClient>),
+                Err(e) => {
+                    warn!(adapter = %adapter_def.name, %addr, error = %e, "failed to connect, running without adapter");
+                    if let Some(scheduler) = &self.shared.scheduler {
+                        let _ = scheduler.teardown_adapter(&self.hypothesis_id, &adapter_def.name).await;
                     }
+                    None
                 }
             }
         } else {

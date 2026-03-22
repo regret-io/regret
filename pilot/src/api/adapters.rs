@@ -29,12 +29,8 @@ pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateAdapterRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Check for duplicate name
     if state.sqlite.get_adapter_by_name(&req.name).await?.is_some() {
-        return Err(ApiError::Conflict(format!(
-            "adapter '{}' already exists",
-            req.name
-        )));
+        return Err(ApiError::Conflict(format!("adapter '{}' already exists", req.name)));
     }
 
     let id = format!("adp-{}", Uuid::now_v7());
@@ -42,7 +38,6 @@ pub async fn create(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
     let adapter = state.sqlite.create_adapter(&id, &req.name, &req.image, &env_json).await?;
-
     Ok((StatusCode::CREATED, Json(to_response(&adapter))))
 }
 
@@ -58,10 +53,7 @@ pub async fn get_one(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let adapter = state
-        .sqlite
-        .get_adapter(&id)
-        .await?
+    let adapter = state.sqlite.get_adapter(&id).await?
         .ok_or_else(|| ApiError::NotFound(format!("adapter {id} not found")))?;
     Ok(Json(to_response(&adapter)))
 }
