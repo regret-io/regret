@@ -205,7 +205,11 @@ impl HypothesisManager {
                 }
                 Err(e) => {
                     error!(error = %e, "executor task panicked");
-                    self.reference = Some(crate::reference::create_reference(&self.profile));
+                    self.reference = Some(crate::reference::create_reference(
+                        &self.profile,
+                        self.shared.rocks.clone(),
+                        self.hypothesis_id.clone(),
+                    ));
                 }
             }
 

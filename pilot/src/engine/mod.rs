@@ -44,7 +44,7 @@ impl ManagerRegistry {
         profile: &str,
         tolerance: Option<String>,
     ) {
-        let reference = reference::create_reference(profile);
+        let reference = reference::create_reference(profile, self.shared.rocks.clone(), id.to_string());
         let manager = HypothesisManager::new(
             id.to_string(),
             profile.to_string(),

@@ -1,34 +1,33 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
+
+use serde::{Deserialize, Serialize};
+use tracing::warn;
+
+use crate::storage::rocks::RocksStore;
 
 use super::{
     AdapterBatchResponse, AdapterOpResult, CheckpointFailure, OpKind, Operation, RangeRecord,
     RecordState, ReferenceModel, ResponseFailure, Tolerance,
 };
 
-#[derive(Debug, Clone)]
+/// Persisted KV record stored in RocksDB state:{key}.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct KVRecord {
     value: Option<String>,
     version_id: u64,
 }
 
-impl Default for KVRecord {
-    fn default() -> Self {
-        Self {
-            value: None,
-            version_id: 0,
-        }
-    }
-}
-
 pub struct BasicKvReference {
-    store: BTreeMap<String, KVRecord>,
+    rocks: RocksStore,
+    hypothesis_id: String,
     touched_keys: HashSet<String>,
 }
 
 impl BasicKvReference {
-    pub fn new() -> Self {
+    pub fn new(rocks: RocksStore, hypothesis_id: String) -> Self {
         Self {
-            store: BTreeMap::new(),
+            rocks,
+            hypothesis_id,
             touched_keys: HashSet::new(),
         }
     }
@@ -41,43 +40,73 @@ impl BasicKvReference {
         }
     }
 
-    /// Apply a successful write to the reference state.
+    /// Read a record from RocksDB.
+    fn get_record(&self, key: &str) -> Option<KVRecord> {
+        match self.rocks.read_state(&self.hypothesis_id, key) {
+            Ok(Some(data)) => serde_json::from_slice(&data).ok(),
+            _ => None,
+        }
+    }
+
+    /// Write a record to RocksDB.
+    fn put_record(&self, key: &str, record: &KVRecord) {
+        if let Ok(data) = serde_json::to_vec(record) {
+            if let Err(e) = self.rocks.write_state(&self.hypothesis_id, key, &data) {
+                warn!(key, error = %e, "failed to write reference state");
+            }
+        }
+    }
+
+    /// Apply a successful write to the reference state (persisted in RocksDB).
     fn apply_write(&mut self, op: &Operation) {
         match &op.kind {
             OpKind::Put { key, value } => {
-                let rec = self.store.entry(key.clone()).or_default();
+                let mut rec = self.get_record(key).unwrap_or_default();
                 rec.value = Some(value.clone());
                 rec.version_id += 1;
+                self.put_record(key, &rec);
                 self.touched_keys.insert(key.clone());
             }
             OpKind::Delete { key } => {
-                if let Some(rec) = self.store.get_mut(key) {
+                if let Some(mut rec) = self.get_record(key) {
                     rec.value = None;
+                    self.put_record(key, &rec);
                 }
                 self.touched_keys.insert(key.clone());
             }
             OpKind::DeleteRange { start, end } => {
-                let keys: Vec<String> = self
-                    .store
-                    .range(start.clone()..end.clone())
-                    .filter(|(_, r)| r.value.is_some())
-                    .map(|(k, _)| k.clone())
-                    .collect();
-                for k in &keys {
-                    if let Some(rec) = self.store.get_mut(k) {
-                        rec.value = None;
+                // Read all keys in range from RocksDB
+                let keys = self.keys_in_range(start, end);
+                for k in keys {
+                    if let Some(mut rec) = self.get_record(&k) {
+                        if rec.value.is_some() {
+                            rec.value = None;
+                            self.put_record(&k, &rec);
+                        }
                     }
-                    self.touched_keys.insert(k.clone());
+                    self.touched_keys.insert(k);
                 }
             }
             OpKind::Cas { key, new_value, .. } => {
-                let rec = self.store.entry(key.clone()).or_default();
+                let mut rec = self.get_record(key).unwrap_or_default();
                 rec.value = Some(new_value.clone());
                 rec.version_id += 1;
+                self.put_record(key, &rec);
                 self.touched_keys.insert(key.clone());
             }
-            _ => {} // reads and fences don't modify state
+            _ => {}
         }
+    }
+
+    /// Get all state keys in a range by scanning touched_keys.
+    /// Since RocksDB doesn't have efficient range scans on state: prefix with
+    /// arbitrary key ranges, we scan touched_keys.
+    fn keys_in_range(&self, start: &str, end: &str) -> Vec<String> {
+        self.touched_keys
+            .iter()
+            .filter(|k| k.as_str() >= start && k.as_str() < end)
+            .cloned()
+            .collect()
     }
 
     /// Verify a read result against reference state.
@@ -91,10 +120,9 @@ impl BasicKvReference {
 
         match &op.kind {
             OpKind::Get { key } => {
-                let rec = self.store.get(key).filter(|r| r.value.is_some());
+                let rec = self.get_record(key).filter(|r| r.value.is_some());
                 match rec {
                     None => {
-                        // Key doesn't exist in reference — adapter should return not_found
                         if result.status != "not_found" {
                             return Some(ResponseFailure {
                                 op_id: op.id.clone(),
@@ -113,7 +141,6 @@ impl BasicKvReference {
                                 actual: format!("status={}", result.status),
                             });
                         }
-                        // Check value
                         if result.value.as_ref() != r.value.as_ref() {
                             return Some(ResponseFailure {
                                 op_id: op.id.clone(),
@@ -122,7 +149,6 @@ impl BasicKvReference {
                                 actual: format!("value={:?}", result.value),
                             });
                         }
-                        // Check version_id
                         if !ignore_version {
                             if let Some(actual_vid) = result.version_id {
                                 if actual_vid != r.version_id {
@@ -140,18 +166,26 @@ impl BasicKvReference {
                 None
             }
             OpKind::RangeScan { start, end } => {
-                let expected: Vec<RangeRecord> = self
-                    .store
-                    .range(start.clone()..end.clone())
-                    .filter(|(_, r)| r.value.is_some())
-                    .filter_map(|(k, r)| {
-                        r.value.as_ref().map(|v| RangeRecord {
-                            key: k.clone(),
-                            value: v.clone(),
-                            version_id: r.version_id,
-                        })
-                    })
+                // Build expected records from RocksDB state
+                let mut expected: Vec<RangeRecord> = Vec::new();
+                let mut all_keys: Vec<String> = self.touched_keys
+                    .iter()
+                    .filter(|k| k.as_str() >= start.as_str() && k.as_str() < end.as_str())
+                    .cloned()
                     .collect();
+                all_keys.sort();
+
+                for k in &all_keys {
+                    if let Some(rec) = self.get_record(k) {
+                        if let Some(v) = &rec.value {
+                            expected.push(RangeRecord {
+                                key: k.clone(),
+                                value: v.clone(),
+                                version_id: rec.version_id,
+                            });
+                        }
+                    }
+                }
 
                 if let Some(actual_records) = &result.records {
                     if actual_records.len() != expected.len() {
@@ -180,13 +214,17 @@ impl BasicKvReference {
                 None
             }
             OpKind::List { prefix } => {
-                let expected_keys: Vec<String> = self
-                    .store
-                    .range(prefix.clone()..)
-                    .take_while(|(k, _)| k.starts_with(prefix.as_str()))
-                    .filter(|(_, r)| r.value.is_some())
-                    .map(|(k, _)| k.clone())
+                let mut expected_keys: Vec<String> = self.touched_keys
+                    .iter()
+                    .filter(|k| k.starts_with(prefix.as_str()))
+                    .filter(|k| {
+                        self.get_record(k)
+                            .map(|r| r.value.is_some())
+                            .unwrap_or(false)
+                    })
+                    .cloned()
                     .collect();
+                expected_keys.sort();
 
                 if let Some(actual_keys) = &result.keys {
                     if actual_keys != &expected_keys {
@@ -205,20 +243,17 @@ impl BasicKvReference {
     }
 
     fn is_write(op: &OpKind) -> bool {
-        matches!(
-            op,
-            OpKind::Put { .. }
-                | OpKind::Delete { .. }
-                | OpKind::DeleteRange { .. }
-                | OpKind::Cas { .. }
-        )
+        matches!(op, OpKind::Put { .. } | OpKind::Delete { .. } | OpKind::DeleteRange { .. } | OpKind::Cas { .. })
     }
 
     fn is_read(op: &OpKind) -> bool {
-        matches!(
-            op,
-            OpKind::Get { .. } | OpKind::RangeScan { .. } | OpKind::List { .. }
-        )
+        matches!(op, OpKind::Get { .. } | OpKind::RangeScan { .. } | OpKind::List { .. })
+    }
+}
+
+impl Default for KVRecord {
+    fn default() -> Self {
+        Self { value: None, version_id: 0 }
     }
 }
 
@@ -231,10 +266,9 @@ impl ReferenceModel for BasicKvReference {
     ) -> Vec<ResponseFailure> {
         let mut failures = Vec::new();
 
-        // Build op_id -> Operation map
         let op_map: HashMap<&str, &Operation> = ops
             .iter()
-            .filter(|op| !op.id.is_empty()) // skip fences (empty id)
+            .filter(|op| !op.id.is_empty())
             .map(|op| (op.id.as_str(), op))
             .collect();
 
@@ -245,14 +279,9 @@ impl ReferenceModel for BasicKvReference {
 
             if Self::is_write(&op.kind) {
                 if result.status == "ok" {
-                    // Write succeeded — apply to reference state
                     self.apply_write(op);
                 }
-                // Write failures (not_found, version_mismatch) are expected for
-                // delete-nonexistent and cas-mismatch — these are not verification errors.
-                // The reference state is NOT updated for failed writes.
             } else if Self::is_read(&op.kind) {
-                // Read — verify against current reference state
                 if let Some(failure) = self.verify_read(op, result, tolerance) {
                     failures.push(failure);
                 }
@@ -310,12 +339,12 @@ impl ReferenceModel for BasicKvReference {
     fn snapshot(&self, keys: &HashSet<String>) -> HashMap<String, Option<RecordState>> {
         keys.iter()
             .map(|k| {
-                let state = self.store.get(k).and_then(|r| {
+                let state = self.get_record(k).and_then(|r| {
                     if r.value.is_none() {
                         None
                     } else {
                         Some(RecordState {
-                            value: r.value.clone(),
+                            value: r.value,
                             version_id: r.version_id,
                             metadata: HashMap::new(),
                         })
@@ -327,7 +356,9 @@ impl ReferenceModel for BasicKvReference {
     }
 
     fn clear(&mut self) {
-        self.store.clear();
+        if let Err(e) = self.rocks.clear_state(&self.hypothesis_id) {
+            warn!(error = %e, "failed to clear reference state in RocksDB");
+        }
         self.touched_keys.clear();
     }
 }

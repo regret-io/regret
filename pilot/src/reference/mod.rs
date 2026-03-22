@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::storage::rocks::RocksStore;
+
 /// Unified record state for checkpoint comparison.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordState {
@@ -122,23 +124,16 @@ pub enum OpKind {
 
 /// The core reference model trait.
 ///
-/// The reference model owns the "truth state" — it processes adapter responses
-/// to maintain what the state SHOULD be after all successful operations.
-///
-/// Flow:
-///   1. Executor sends ops to adapter → gets response
-///   2. Reference.process_response(ops, response) →
-///      - Writes that succeeded → update reference state
-///      - Reads that succeeded → verify value against reference state → return failures
-///   3. Checkpoint: reference.snapshot() vs adapter.readState() → return failures
+/// The reference model owns the "truth state" persisted in RocksDB.
+/// It processes adapter responses to maintain what the state SHOULD be
+/// after all successful operations.
 pub trait ReferenceModel: Send + Sync {
     /// Process adapter response for a batch of operations.
     ///
-    /// For each operation result:
-    /// - Write (put/delete/cas) with status=ok → update internal state
-    /// - Read (get/range_scan/list) → verify returned value against internal state
+    /// - Write succeeded → update state in RocksDB
+    /// - Read succeeded → verify value against state in RocksDB
     ///
-    /// Returns list of read verification failures (empty = all reads correct).
+    /// Returns list of read verification failures.
     fn process_response(
         &mut self,
         ops: &[Operation],
@@ -163,10 +158,14 @@ pub trait ReferenceModel: Send + Sync {
     fn clear(&mut self);
 }
 
-/// Create a reference model based on profile name.
-pub fn create_reference(profile: &str) -> Box<dyn ReferenceModel> {
+/// Create a reference model backed by RocksDB.
+pub fn create_reference(
+    profile: &str,
+    rocks: RocksStore,
+    hypothesis_id: String,
+) -> Box<dyn ReferenceModel> {
     match profile {
-        "basic-kv" => Box::new(kv::BasicKvReference::new()),
+        "basic-kv" => Box::new(kv::BasicKvReference::new(rocks, hypothesis_id)),
         "basic-streaming" => Box::new(streaming::BasicStreamingReference::new()),
         _ => panic!("unsupported profile: {profile}"),
     }
