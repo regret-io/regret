@@ -4,6 +4,10 @@
 default:
     @just --list
 
+# Sync proto file to Java SDK
+sync-proto:
+    cp regret.proto sdk/java/src/main/proto/regret.proto
+
 # Build all Rust crates
 build:
     cargo build --workspace
