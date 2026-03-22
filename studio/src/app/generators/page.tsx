@@ -22,10 +22,25 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import type { Generator } from "@/lib/api";
 import { listGenerators, createGenerator } from "@/lib/api";
 import { PlusIcon } from "lucide-react";
+
+const OPERATION_TYPES = [
+  "put",
+  "get",
+  "delete",
+  "delete_range",
+  "list",
+  "range_scan",
+  "cas",
+  "ephemeral_put",
+  "indexed_put",
+  "indexed_get",
+  "indexed_list",
+  "indexed_range_scan",
+  "sequence_put",
+] as const;
 
 export default function GeneratorsPage() {
   const [generators, setGenerators] = useState<Generator[]>([]);
@@ -35,7 +50,7 @@ export default function GeneratorsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [rate, setRate] = useState("1000");
-  const [workloadJson, setWorkloadJson] = useState("{}");
+  const [weights, setWeights] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(() => {
@@ -49,20 +64,26 @@ export default function GeneratorsPage() {
     load();
   }, [load]);
 
+  function setWeight(op: string, value: number) {
+    setWeights((prev) => {
+      const next = { ...prev };
+      if (value === 0) {
+        delete next[op];
+      } else {
+        next[op] = value;
+      }
+      return next;
+    });
+  }
+
   async function handleCreate() {
     setSubmitting(true);
     try {
-      let workload: Record<string, unknown> = {};
-      try {
-        workload = JSON.parse(workloadJson);
-      } catch {
-        // keep default
-      }
-      await createGenerator({ name, description, rate: Number(rate), workload });
+      await createGenerator({ name, description, rate: Number(rate), workload: weights });
       setName("");
       setDescription("");
       setRate("1000");
-      setWorkloadJson("{}");
+      setWeights({});
       setDialogOpen(false);
       load();
     } catch {
@@ -72,20 +93,22 @@ export default function GeneratorsPage() {
     }
   }
 
+  function formatWorkload(workload: Record<string, number>): string {
+    const entries = Object.entries(workload).filter(([, v]) => v > 0);
+    if (entries.length === 0) return "-";
+    return entries.map(([k, v]) => `${k}: ${v}`).join(", ");
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Generators</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger
-            render={
-              <Button>
-                <PlusIcon className="size-4 mr-1" />
-                New Generator
-              </Button>
-            }
-          />
-          <DialogContent className="sm:max-w-md">
+          <DialogTrigger render={<Button />}>
+            <PlusIcon className="size-4 mr-1" />
+            New Generator
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>New Generator</DialogTitle>
             </DialogHeader>
@@ -118,14 +141,27 @@ export default function GeneratorsPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="gen-workload">Workload (JSON)</Label>
-                <Textarea
-                  id="gen-workload"
-                  value={workloadJson}
-                  onChange={(e) => setWorkloadJson(e.target.value)}
-                  rows={4}
-                  className="font-mono text-xs"
-                />
+                <Label>Workload Weights</Label>
+                <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                  {OPERATION_TYPES.map((op) => (
+                    <div key={op} className="flex items-center gap-2">
+                      <Label className="text-xs font-mono w-28 shrink-0">{op}</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={weights[op] ?? 0}
+                        onChange={(e) => setWeight(op, Number(e.target.value))}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  ))}
+                </div>
+                {Object.keys(weights).length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Active: {Object.entries(weights).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).join(", ")}
+                  </p>
+                )}
               </div>
             </div>
             <DialogFooter>
@@ -159,7 +195,7 @@ export default function GeneratorsPage() {
           </TableHeader>
           <TableBody>
             {generators.map((g) => (
-              <TableRow key={g.id}>
+              <TableRow key={g.name}>
                 <TableCell className="font-medium">{g.name}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {g.description}
@@ -169,7 +205,7 @@ export default function GeneratorsPage() {
                 </TableCell>
                 <TableCell>
                   <code className="text-xs bg-muted px-1.5 py-0.5 rounded max-w-[200px] truncate block">
-                    {JSON.stringify(g.workload)}
+                    {formatWorkload(g.workload)}
                   </code>
                 </TableCell>
                 <TableCell>

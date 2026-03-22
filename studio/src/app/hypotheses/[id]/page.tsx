@@ -38,8 +38,7 @@ import {
 import { StatusBadge } from "@/components/status-badge";
 import type {
   Hypothesis,
-  RunStatus,
-  HypothesisEvent,
+  StatusResponse,
   Adapter,
 } from "@/lib/api";
 import {
@@ -58,6 +57,10 @@ import {
   Loader2Icon,
 } from "lucide-react";
 
+interface ParsedEvent {
+  [key: string]: unknown;
+}
+
 export default function HypothesisDetailPage({
   params,
 }: {
@@ -66,32 +69,44 @@ export default function HypothesisDetailPage({
   const { id } = use(params);
 
   const [hypothesis, setHypothesis] = useState<Hypothesis | null>(null);
-  const [status, setStatus] = useState<RunStatus | null>(null);
-  const [events, setEvents] = useState<HypothesisEvent[]>([]);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [events, setEvents] = useState<ParsedEvent[]>([]);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [loading, setLoading] = useState(true);
   const [runDialogOpen, setRunDialogOpen] = useState(false);
 
   // Run form
   const [adapter, setAdapter] = useState("");
-  const [batchSize, setBatchSize] = useState("100");
-  const [checkpointEvery, setCheckpointEvery] = useState("10");
-  const [duration, setDuration] = useState("60s");
+  const [adapterAddr, setAdapterAddr] = useState("");
+  const [duration, setDuration] = useState("30s");
   const [submitting, setSubmitting] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [h, s, e, a] = await Promise.all([
+      const [h, s, evText, a] = await Promise.all([
         getHypothesis(id),
         getStatus(id).catch(() => null),
-        getEvents(id).catch(() => []),
+        getEvents(id).catch(() => ""),
         listAdapters().catch(() => []),
       ]);
       setHypothesis(h);
       setStatus(s);
-      setEvents(e);
+      // Parse NDJSON text: one JSON object per line
+      const parsed: ParsedEvent[] = [];
+      if (evText) {
+        for (const line of evText.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            parsed.push(JSON.parse(trimmed));
+          } catch {
+            // skip malformed lines
+          }
+        }
+      }
+      setEvents(parsed);
       setAdapters(a);
     } catch {
       // API error
@@ -132,10 +147,11 @@ export default function HypothesisDetailPage({
     setSubmitting(true);
     try {
       await startRun(id, {
-        adapter,
-        batch_size: Number(batchSize),
-        checkpoint_every: Number(checkpointEvery),
-        duration,
+        adapter: adapter || undefined,
+        adapter_addr: adapterAddr || undefined,
+        execution: {
+          duration,
+        },
       });
       setRunDialogOpen(false);
       loadData();
@@ -157,13 +173,7 @@ export default function HypothesisDetailPage({
 
   async function handleDownload() {
     try {
-      const blob = await downloadBundle(id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${hypothesis?.name || id}-bundle.tar.gz`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadBundle(id);
     } catch {
       // error
     }
@@ -204,14 +214,10 @@ export default function HypothesisDetailPage({
             </Button>
           ) : (
             <Dialog open={runDialogOpen} onOpenChange={setRunDialogOpen}>
-              <DialogTrigger
-                render={
-                  <Button>
-                    <PlayIcon className="size-4 mr-1" />
-                    Start Run
-                  </Button>
-                }
-              />
+              <DialogTrigger render={<Button />}>
+                <PlayIcon className="size-4 mr-1" />
+                Start Run
+              </DialogTrigger>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                   <DialogTitle>Start Run</DialogTitle>
@@ -237,33 +243,22 @@ export default function HypothesisDetailPage({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="batch_size">Batch Size</Label>
-                      <Input
-                        id="batch_size"
-                        type="number"
-                        value={batchSize}
-                        onChange={(e) => setBatchSize(e.target.value)}
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="checkpoint">Checkpoint Every</Label>
-                      <Input
-                        id="checkpoint"
-                        type="number"
-                        value={checkpointEvery}
-                        onChange={(e) => setCheckpointEvery(e.target.value)}
-                      />
-                    </div>
-                  </div>
                   <div className="grid gap-2">
                     <Label htmlFor="duration">Duration</Label>
                     <Input
                       id="duration"
                       value={duration}
                       onChange={(e) => setDuration(e.target.value)}
-                      placeholder="60s"
+                      placeholder="30s, 5m, 1h"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="adapter_addr">Adapter Address (optional)</Label>
+                    <Input
+                      id="adapter_addr"
+                      value={adapterAddr}
+                      onChange={(e) => setAdapterAddr(e.target.value)}
+                      placeholder="http://localhost:9090"
                     />
                   </div>
                 </div>
@@ -273,7 +268,7 @@ export default function HypothesisDetailPage({
                   </DialogClose>
                   <Button
                     onClick={handleStartRun}
-                    disabled={!adapter || submitting}
+                    disabled={submitting}
                   >
                     {submitting ? "Starting..." : "Start"}
                   </Button>
@@ -299,11 +294,11 @@ export default function HypothesisDetailPage({
               <dt className="text-muted-foreground">Generator</dt>
               <dd>{hypothesis.generator}</dd>
               <dt className="text-muted-foreground">Created</dt>
-              <dd>{new Date(hypothesis.created).toLocaleString()}</dd>
+              <dd>{new Date(hypothesis.created_at).toLocaleString()}</dd>
               <dt className="text-muted-foreground">Last Run</dt>
               <dd>
-                {hypothesis.last_run
-                  ? new Date(hypothesis.last_run).toLocaleString()
+                {hypothesis.last_run_at
+                  ? new Date(hypothesis.last_run_at).toLocaleString()
                   : "-"}
               </dd>
             </dl>
@@ -321,16 +316,33 @@ export default function HypothesisDetailPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {status ? (
+            {status?.progress ? (
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <dt className="text-muted-foreground">Ops</dt>
-                <dd className="font-mono">{status.ops}</dd>
-                <dt className="text-muted-foreground">Batches</dt>
-                <dd className="font-mono">{status.batches}</dd>
+                <dt className="text-muted-foreground">Ops/sec</dt>
+                <dd className="font-mono">{status.progress.ops_per_sec.toFixed(1)}</dd>
+                <dt className="text-muted-foreground">Elapsed</dt>
+                <dd className="font-mono">{status.progress.elapsed_secs.toFixed(1)}s</dd>
+                <dt className="text-muted-foreground">Total Ops</dt>
+                <dd className="font-mono">{status.progress.total_ops}</dd>
+                <dt className="text-muted-foreground">Completed Ops</dt>
+                <dd className="font-mono">{status.progress.completed_ops}</dd>
                 <dt className="text-muted-foreground">Checkpoints</dt>
-                <dd className="font-mono">{status.checkpoints}</dd>
-                <dt className="text-muted-foreground">Failures</dt>
-                <dd className="font-mono">{status.failures}</dd>
+                <dd className="font-mono">
+                  {status.progress.passed_checkpoints}/{status.progress.total_checkpoints}
+                </dd>
+                <dt className="text-muted-foreground">Failed Ops</dt>
+                <dd className="font-mono">{status.progress.failed_response_ops}</dd>
+              </dl>
+            ) : status ? (
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <dt className="text-muted-foreground">Status</dt>
+                <dd>{status.status}</dd>
+                {status.run_id && (
+                  <>
+                    <dt className="text-muted-foreground">Run ID</dt>
+                    <dd className="font-mono text-xs">{status.run_id}</dd>
+                  </>
+                )}
               </dl>
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -357,21 +369,27 @@ export default function HypothesisDetailPage({
                 <TableRow>
                   <TableHead>Time</TableHead>
                   <TableHead>Kind</TableHead>
-                  <TableHead>Message</TableHead>
+                  <TableHead>Data</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {events.map((e) => (
-                  <TableRow key={e.id}>
+                {events.map((e, i) => (
+                  <TableRow key={i}>
                     <TableCell className="text-muted-foreground">
-                      {new Date(e.timestamp).toLocaleString()}
+                      {e.timestamp
+                        ? new Date(e.timestamp as string).toLocaleString()
+                        : "-"}
                     </TableCell>
                     <TableCell>
                       <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                        {e.kind}
+                        {(e.kind as string) || (e.type as string) || "event"}
                       </code>
                     </TableCell>
-                    <TableCell>{e.message}</TableCell>
+                    <TableCell>
+                      <code className="text-xs max-w-[400px] truncate block">
+                        {JSON.stringify(e)}
+                      </code>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

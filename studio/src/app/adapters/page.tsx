@@ -74,14 +74,10 @@ export default function AdaptersPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Adapters</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger
-            render={
-              <Button>
-                <PlusIcon className="size-4 mr-1" />
-                New Adapter
-              </Button>
-            }
-          />
+          <DialogTrigger render={<Button />}>
+            <PlusIcon className="size-4 mr-1" />
+            New Adapter
+          </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>New Adapter</DialogTitle>
@@ -161,7 +157,7 @@ export default function AdaptersPage() {
                   </code>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {new Date(a.created).toLocaleDateString()}
+                  {new Date(a.created_at).toLocaleDateString()}
                 </TableCell>
               </TableRow>
             ))}

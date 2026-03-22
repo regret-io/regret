@@ -91,14 +91,10 @@ export default function HypothesesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Hypotheses</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger
-            render={
-              <Button>
-                <PlusIcon className="size-4 mr-1" />
-                New Hypothesis
-              </Button>
-            }
-          />
+          <DialogTrigger render={<Button />}>
+            <PlusIcon className="size-4 mr-1" />
+            New Hypothesis
+          </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>New Hypothesis</DialogTitle>
@@ -121,7 +117,7 @@ export default function HypothesesPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {generators.map((g) => (
-                      <SelectItem key={g.id} value={g.name}>
+                      <SelectItem key={g.name} value={g.name}>
                         {g.name}
                       </SelectItem>
                     ))}
@@ -194,11 +190,11 @@ export default function HypothesesPage() {
                   <StatusBadge status={h.status} />
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {new Date(h.created).toLocaleDateString()}
+                  {new Date(h.created_at).toLocaleDateString()}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {h.last_run
-                    ? new Date(h.last_run).toLocaleDateString()
+                  {h.last_run_at
+                    ? new Date(h.last_run_at).toLocaleDateString()
                     : "-"}
                 </TableCell>
               </TableRow>
