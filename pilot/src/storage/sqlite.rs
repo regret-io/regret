@@ -329,4 +329,12 @@ impl SqliteStore {
         .fetch_optional(&self.pool)
         .await?)
     }
+
+    pub async fn delete_result(&self, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM hypothesis_results WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
 }

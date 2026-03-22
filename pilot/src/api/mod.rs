@@ -25,6 +25,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/hypothesis/{id}/status", get(hypothesis::status))
         .route("/api/hypothesis/{id}/events", get(hypothesis::events))
         .route("/api/hypothesis/{id}/results", get(hypothesis::results))
+        .route("/api/hypothesis/{id}/results/{result_id}", delete(hypothesis::delete_result))
         .route("/api/hypothesis/{id}/bundle", get(hypothesis::bundle))
         // Adapters
         .route("/api/adapters", post(adapters::create))

@@ -10,9 +10,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import type { Hypothesis, StatusResponse, RunResult } from "@/lib/api";
-import { getHypothesis, getStatus, getEvents, getResults, stopRun, downloadBundle } from "@/lib/api";
+import { getHypothesis, getStatus, getEvents, getResults, stopRun, downloadBundle, deleteResult } from "@/lib/api";
+import { useRouter } from "next/navigation";
 import {
-  ArrowLeftIcon, SquareIcon, DownloadIcon, ActivityIcon,
+  ArrowLeftIcon, SquareIcon, DownloadIcon, Trash2Icon,
   ClockIcon, ZapIcon, ShieldCheckIcon, AlertTriangleIcon, LayersIcon,
 } from "lucide-react";
 
@@ -34,6 +35,7 @@ export default function RunDetailPage({
   params: Promise<{ hypothesisId: string; runId: string }>;
 }) {
   const { hypothesisId, runId } = use(params);
+  const router = useRouter();
   const [hypothesis, setHypothesis] = useState<Hypothesis | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -104,6 +106,18 @@ export default function RunDetailPage({
     }
   }
 
+  async function handleDelete() {
+    if (!result) return;
+    if (!confirm("Delete this run? This cannot be undone.")) return;
+    try {
+      await deleteResult(hypothesisId, result.id);
+      toast.success("Run deleted");
+      router.push(`/templates/${hypothesisId}`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    }
+  }
+
   const progress = status?.run_id === runId ? status?.progress : null;
   const ops = progress?.completed_ops ?? result?.total_response_ops ?? 0;
   const opsPerSec = progress?.ops_per_sec ?? 0;
@@ -142,6 +156,11 @@ export default function RunDetailPage({
           <Button variant="outline" size="sm" onClick={handleDownload}>
             <DownloadIcon className="size-3 mr-1" /> Bundle
           </Button>
+          {!isRunning && result && (
+            <Button variant="destructive" size="sm" onClick={handleDelete}>
+              <Trash2Icon className="size-3 mr-1" /> Delete
+            </Button>
+          )}
         </div>
       </div>
 

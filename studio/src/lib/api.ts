@@ -133,6 +133,10 @@ export async function getResults(id: string): Promise<RunResult[]> {
   return data.items;
 }
 
+export async function deleteResult(hypothesisId: string, resultId: string): Promise<void> {
+  return request<void>(`/api/hypothesis/${hypothesisId}/results/${resultId}`, { method: "DELETE" });
+}
+
 export async function downloadBundle(id: string): Promise<void> {
   const res = await fetch(`/api/hypothesis/${id}/bundle`);
   if (!res.ok) throw new Error(`API ${res.status}`);

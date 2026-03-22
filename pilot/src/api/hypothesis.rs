@@ -184,6 +184,19 @@ pub async fn results(State(state): State<AppState>, Path(id): Path<String>) -> R
     Ok(Json(serde_json::json!({ "items": items })))
 }
 
+pub async fn delete_result(
+    State(state): State<AppState>,
+    Path((id, result_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.sqlite.get_hypothesis(&id).await?
+        .ok_or_else(|| ApiError::NotFound(format!("hypothesis {id} not found")))?;
+    let deleted = state.sqlite.delete_result(&result_id).await?;
+    if !deleted {
+        return Err(ApiError::NotFound(format!("result {result_id} not found")));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn bundle(State(state): State<AppState>, Path(id): Path<String>, Query(query): Query<BundleQuery>) -> Result<impl IntoResponse, ApiError> {
     state.sqlite.get_hypothesis(&id).await?.ok_or_else(|| ApiError::NotFound(format!("hypothesis {id} not found")))?;
     let data = state.files.create_bundle(&id, query.run_id.as_deref())?;
