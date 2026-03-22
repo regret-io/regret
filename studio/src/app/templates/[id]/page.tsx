@@ -32,12 +32,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Hypothesis, Generator, Adapter, RunResult } from "@/lib/api";
+import { StatusBadge } from "@/components/status-badge";
+import type { Hypothesis, Generator, Adapter, RunResult, StatusResponse } from "@/lib/api";
 import {
   getHypothesis,
   startRun,
   deleteHypothesis,
   getResults,
+  getStatus,
+  stopRun,
   updateHypothesis,
   listGenerators,
   listAdapters,
@@ -62,6 +65,7 @@ export default function TemplateDetailPage({
   const router = useRouter();
 
   const [hypothesis, setHypothesis] = useState<Hypothesis | null>(null);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
   const [results, setResults] = useState<RunResult[]>([]);
   const [generators, setGenerators] = useState<Generator[]>([]);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
@@ -84,13 +88,15 @@ export default function TemplateDetailPage({
 
   const loadData = useCallback(async () => {
     try {
-      const [h, r, g, a] = await Promise.all([
+      const [h, s, r, g, a] = await Promise.all([
         getHypothesis(id),
+        getStatus(id).catch(() => null),
         getResults(id).catch(() => []),
         listGenerators(),
         listAdapters(),
       ]);
       setHypothesis(h);
+      setStatus(s);
       setResults(r);
       setGenerators(g);
       setAdapters(a);
@@ -101,6 +107,15 @@ export default function TemplateDetailPage({
       setLoading(false);
     }
   }, [id]);
+
+  const isRunning = status?.status === "running";
+
+  // Auto-poll when running
+  useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(loadData, 2000);
+    return () => clearInterval(interval);
+  }, [isRunning, loadData]);
 
   useEffect(() => {
     loadData();
@@ -425,7 +440,7 @@ export default function TemplateDetailPage({
         <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
           Run History
         </h2>
-        {results.length === 0 ? (
+        {results.length === 0 && !isRunning ? (
           <p className="py-4 text-sm text-zinc-500">
             No runs yet. Start one above.
           </p>
@@ -444,8 +459,42 @@ export default function TemplateDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* Active run (live) */}
+                {isRunning && status?.run_id && (
+                  <TableRow
+                    className="border-zinc-800 bg-blue-500/5 border-l-2 border-l-blue-500 cursor-pointer"
+                    onClick={() => router.push(`/runs/${id}/${status.run_id}`)}
+                  >
+                    <TableCell className="font-mono text-xs text-blue-400">
+                      {status.run_id.slice(-8)}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status="running" />
+                    </TableCell>
+                    <TableCell className="font-mono text-zinc-300 text-sm">
+                      {status.progress?.completed_ops.toLocaleString() ?? 0}
+                    </TableCell>
+                    <TableCell className="font-mono text-emerald-400 text-sm">
+                      {status.progress?.passed_checkpoints ?? 0}/{status.progress?.total_checkpoints ?? 0}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {(status.progress?.failed_response_ops ?? 0) > 0
+                        ? <span className="text-red-400">{status.progress?.failed_response_ops}</span>
+                        : <span className="text-zinc-400">0</span>}
+                    </TableCell>
+                    <TableCell className="text-zinc-500 text-xs">now</TableCell>
+                    <TableCell className="text-blue-400 text-xs font-mono">
+                      {status.progress?.ops_per_sec ? `${Math.round(status.progress.ops_per_sec)} ops/s` : "-"}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {/* Completed runs */}
                 {results.map((r) => (
-                  <TableRow key={r.id} className="border-zinc-800">
+                  <TableRow
+                    key={r.id}
+                    className="border-zinc-800 cursor-pointer hover:bg-zinc-800/50"
+                    onClick={() => router.push(`/runs/${id}/${r.run_id}`)}
+                  >
                     <TableCell className="font-mono text-xs text-zinc-300">
                       {r.run_id.slice(-8)}
                     </TableCell>
