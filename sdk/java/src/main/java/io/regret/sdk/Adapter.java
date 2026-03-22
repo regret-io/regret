@@ -16,11 +16,11 @@ public interface Adapter {
     BatchResponse executeBatch(Batch batch) throws Exception;
 
     /**
-     * Read current state of the given keys.
-     * Called by regret-pilot during checkpoint.
-     * Return Record with null value for keys that do not exist.
+     * Read all records under the given key prefix.
+     * Called by regret-pilot during checkpoint verification.
+     * Uses range scan to retrieve all keys matching the prefix.
      */
-    List<Record> readState(List<String> keys) throws Exception;
+    List<Record> readState(String keyPrefix) throws Exception;
 
     /**
      * Optional cleanup. Called when run ends or pilot deletes the adapter.

@@ -140,10 +140,10 @@ impl AdapterClient for GrpcAdapterClient {
 
     async fn read_state(
         &self,
-        keys: &[String],
+        key_prefix: &str,
     ) -> Result<HashMap<String, Option<RecordState>>> {
         let request = proto::ReadStateRequest {
-            keys: keys.to_vec(),
+            key_prefix: key_prefix.to_string(),
         };
 
         let mut client = self.client.clone();

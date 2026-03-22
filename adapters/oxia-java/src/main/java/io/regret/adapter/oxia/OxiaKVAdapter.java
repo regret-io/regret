@@ -193,25 +193,20 @@ public class OxiaKVAdapter implements Adapter {
     }
 
     @Override
-    public List<io.regret.sdk.Record> readState(List<String> keys) throws Exception {
-        LOG.info("readState keys={}", keys.size());
-        return keys.stream().map(key -> {
-            GetResult res = client.get(key);
-            if (res != null) {
-                return io.regret.sdk.Record.builder()
-                        .key(key)
-                        .value(res.getValue())
-                        .metadata(Map.of(
-                                "version_id",
-                                String.valueOf(res.getVersion().versionId())))
-                        .build();
-            } else {
-                return io.regret.sdk.Record.builder()
-                        .key(key)
-                        .value(null)
-                        .build();
-            }
-        }).toList();
+    public List<io.regret.sdk.Record> readState(String keyPrefix) throws Exception {
+        LOG.info("readState prefix={}", keyPrefix);
+        var records = new ArrayList<io.regret.sdk.Record>();
+        for (GetResult res : client.rangeScan(keyPrefix, keyPrefix + "\uffff")) {
+            records.add(io.regret.sdk.Record.builder()
+                    .key(res.getKey())
+                    .value(res.getValue())
+                    .metadata(Map.of(
+                            "version_id",
+                            String.valueOf(res.getVersion().versionId())))
+                    .build());
+        }
+        LOG.info("readState returned {} records", records.size());
+        return records;
     }
 
     @Override

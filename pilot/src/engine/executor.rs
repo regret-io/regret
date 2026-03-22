@@ -97,7 +97,7 @@ pub trait AdapterClient: Send + Sync {
         ops: &[Operation],
     ) -> Result<AdapterBatchResponse>;
 
-    async fn read_state(&self, keys: &[String]) -> Result<HashMap<String, Option<RecordState>>>;
+    async fn read_state(&self, key_prefix: &str) -> Result<HashMap<String, Option<RecordState>>>;
 }
 
 /// The main execution loop.
@@ -323,12 +323,13 @@ impl Executor {
 
     async fn run_checkpoint(&mut self, checkpoint_num: usize) -> Result<StopReason> {
         let checkpoint_id = format!("ckpt-{checkpoint_num:04}");
-        let touched_keys: Vec<String> = self.reference.touched_keys().iter().cloned().collect();
+        let key_prefix = format!("/{}/", self.hypothesis_id);
+        let touched_count = self.reference.touched_keys().len();
 
         self.emit_event(Event::checkpoint_started(
             &self.run_id,
             &checkpoint_id,
-            touched_keys.len(),
+            touched_count,
         ));
 
         {
@@ -336,9 +337,9 @@ impl Executor {
             progress.total_checkpoints += 1;
         }
 
-        // Read actual state from adapter
+        // Read actual state from adapter by scanning the hypothesis prefix
         let actual_state = if let Some(client) = &self.adapter_client {
-            client.read_state(&touched_keys).await?
+            client.read_state(&key_prefix).await?
         } else {
             // No adapter — use reference state as actual (for local testing)
             self.reference.snapshot(self.reference.touched_keys())
@@ -356,7 +357,7 @@ impl Executor {
             self.emit_event(Event::checkpoint_passed(
                 &self.run_id,
                 &checkpoint_id,
-                touched_keys.len(),
+                touched_count,
             ));
 
             Ok(StopReason::Completed)

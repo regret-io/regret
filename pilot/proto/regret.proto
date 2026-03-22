@@ -1,21 +1,6 @@
 syntax = "proto3";
 package regret.v1;
 
-// Called by adapter on startup and after restart.
-service PilotService {
-    rpc RegisterAdapter(RegisterRequest) returns (RegisterResponse);
-}
-
-message RegisterRequest {
-    string hypothesis_id = 1;
-    string adapter_name  = 2;
-    string grpc_addr     = 3;
-}
-
-message RegisterResponse {
-    bool accepted = 1;
-}
-
 // Called by pilot during execution.
 service AdapterService {
     rpc ExecuteBatch(BatchRequest)    returns (BatchResponse);
@@ -57,7 +42,7 @@ message OpResult {
 }
 
 message ReadStateRequest {
-    repeated string keys = 1;
+    string key_prefix = 1;  // scan all keys under this prefix
 }
 
 message ReadStateResponse {

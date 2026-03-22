@@ -171,9 +171,13 @@ pub async fn generate(
         )));
     }
 
+    // Prepend hypothesis_id to key prefix for data isolation
+    let mut params = req;
+    params.key_space.prefix = format!("/{}/{}", id, params.key_space.prefix);
+
     // Generate to buffer
     let mut buf = Vec::new();
-    let _stats = crate::generator::generate_to_writer(&req, &mut buf)
+    let _stats = crate::generator::generate_to_writer(&params, &mut buf)
         .map_err(|e| ApiError::Internal(e.into()))?;
 
     // Store via shared helper
