@@ -67,9 +67,7 @@ pub struct ExecutionConfigRequest {
     pub checkpoint_every: usize,
     #[serde(default = "default_fail_fast")]
     pub fail_fast: bool,
-    /// Max ops to execute. Omit for unlimited.
-    pub max_ops: Option<usize>,
-    /// Max duration (e.g. "30m", "1h", "300s"). Omit for unlimited.
+    /// Run duration (e.g. "30m", "1h", "300s"). Omit to run forever.
     pub duration: Option<String>,
 }
 
@@ -83,7 +81,6 @@ impl Default for ExecutionConfigRequest {
             batch_size: default_batch_size(),
             checkpoint_every: default_checkpoint_every(),
             fail_fast: default_fail_fast(),
-            max_ops: None,
             duration: None,
         }
     }

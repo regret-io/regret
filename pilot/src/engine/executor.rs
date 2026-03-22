@@ -23,9 +23,7 @@ pub struct ExecutionConfig {
     pub batch_size: usize,
     pub checkpoint_every: usize,
     pub fail_fast: bool,
-    /// Max ops. None = unlimited.
-    pub max_ops: Option<usize>,
-    /// Max duration in seconds. None = unlimited.
+    /// Run duration in seconds. None = run forever until stopped.
     pub duration_secs: Option<u64>,
 }
 
@@ -35,7 +33,6 @@ impl Default for ExecutionConfig {
             batch_size: 100,
             checkpoint_every: 10,
             fail_fast: true,
-            max_ops: None,
             duration_secs: None,
         }
     }
@@ -161,7 +158,6 @@ impl Executor {
         // Create generator for on-the-fly op production
         let mut generator = crate::generator::kv::BasicKvGenerator::new(&self.generate_params);
         let run_start = Instant::now();
-        let max_ops = self.config.max_ops.unwrap_or(0);
         let duration_secs = self.config.duration_secs.unwrap_or(0);
 
         let mut total_ops = 0usize;
@@ -173,16 +169,11 @@ impl Executor {
             if self.cancel.is_cancelled() {
                 return Ok(StopReason::Stopped);
             }
-            if max_ops > 0 && total_ops >= max_ops {
-                break;
-            }
             if duration_secs > 0 && run_start.elapsed().as_secs() >= duration_secs {
                 break;
             }
 
-            // Generate a batch of ops
-            let remaining = if max_ops > 0 { max_ops - total_ops } else { self.config.batch_size };
-            let batch_count = remaining.min(self.config.batch_size);
+            let batch_count = self.config.batch_size;
             let raw_ops = generator.gen_batch(batch_count);
 
             // Convert OriginOp to Operation

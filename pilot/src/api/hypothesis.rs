@@ -219,7 +219,6 @@ pub async fn start_run(
         batch_size: req.execution.batch_size,
         checkpoint_every: req.execution.checkpoint_every,
         fail_fast: req.execution.fail_fast,
-        max_ops: req.execution.max_ops,
         duration_secs,
     };
 
@@ -245,7 +244,7 @@ pub async fn start_run(
     // Key prefix includes hypothesis_id for data isolation
     let mut gen_params = crate::generator::GenerateParams {
         generator: hypothesis.generator.clone(),
-        ops: config.max_ops.unwrap_or(usize::MAX),
+        ops: usize::MAX, // unlimited — controlled by duration or manual stop
         ..crate::generator::GenerateParams::default()
     };
     gen_params.key_space.prefix = format!("/{}/", id);

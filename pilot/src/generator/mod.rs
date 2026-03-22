@@ -109,7 +109,7 @@ impl Default for IndexConfig {
 }
 
 fn default_key_prefix() -> String { "user:".to_string() }
-fn default_key_count() -> usize { 100 }
+fn default_key_count() -> usize { 20_000 }
 fn default_key_padding() -> usize { 6 }
 fn default_value_min_len() -> usize { 4 }
 fn default_value_max_len() -> usize { 12 }
