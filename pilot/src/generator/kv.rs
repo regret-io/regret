@@ -33,11 +33,18 @@ impl BasicKvGenerator {
 
     pub fn generate(mut self) -> Vec<OriginOp> {
         let mut ops = Vec::new();
-
         while self.op_counter < self.params.ops {
             ops.push(self.gen_op());
         }
+        ops
+    }
 
+    /// Generate the next N ops. Can be called repeatedly for incremental generation.
+    pub fn gen_batch(&mut self, count: usize) -> Vec<OriginOp> {
+        let mut ops = Vec::new();
+        for _ in 0..count {
+            ops.push(self.gen_op());
+        }
         ops
     }
 

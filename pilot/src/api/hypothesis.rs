@@ -200,17 +200,11 @@ pub async fn start_run(
     Path(id): Path<String>,
     Json(req): Json<StartRunRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Check hypothesis exists
-    state
+    let hypothesis = state
         .sqlite
         .get_hypothesis(&id)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("hypothesis {id} not found")))?;
-
-    // Check origin exists
-    if !state.files.origin_exists(&id) {
-        return Err(ApiError::NotFound("origin not yet uploaded".to_string()));
-    }
 
     let manager = state
         .managers
@@ -218,11 +212,15 @@ pub async fn start_run(
         .await
         .ok_or_else(|| ApiError::NotFound(format!("manager for {id} not found")))?;
 
+    // Parse duration string (e.g. "30m", "1h", "300s") to seconds
+    let duration_secs = req.execution.duration.as_ref().and_then(|d| parse_duration(d));
+
     let config = ExecutionConfig {
         batch_size: req.execution.batch_size,
         checkpoint_every: req.execution.checkpoint_every,
         fail_fast: req.execution.fail_fast,
-        ..ExecutionConfig::default()
+        max_ops: req.execution.max_ops,
+        duration_secs,
     };
 
     // Look up adapter definition if specified
@@ -243,7 +241,16 @@ pub async fn start_run(
         return Err(ApiError::Conflict("hypothesis is already running".to_string()));
     }
 
-    let (run_id, _progress) = mgr.start_run(config, adapter, req.adapter_addr).await?;
+    // Build generate params from the hypothesis's generator config
+    // Key prefix includes hypothesis_id for data isolation
+    let mut gen_params = crate::generator::GenerateParams {
+        generator: hypothesis.generator.clone(),
+        ops: config.max_ops.unwrap_or(usize::MAX),
+        ..crate::generator::GenerateParams::default()
+    };
+    gen_params.key_space.prefix = format!("/{}/", id);
+
+    let (run_id, _progress) = mgr.start_run(config, gen_params, adapter, req.adapter_addr).await?;
 
     Ok((
         StatusCode::ACCEPTED,
@@ -411,6 +418,20 @@ fn store_origin(
         .map_err(|e| ApiError::Internal(e))?;
 
     Ok((total_ops, total_fences))
+}
+
+/// Parse duration strings like "30s", "5m", "1h" to seconds.
+fn parse_duration(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.ends_with('s') {
+        s[..s.len()-1].parse().ok()
+    } else if s.ends_with('m') {
+        s[..s.len()-1].parse::<u64>().ok().map(|m| m * 60)
+    } else if s.ends_with('h') {
+        s[..s.len()-1].parse::<u64>().ok().map(|h| h * 3600)
+    } else {
+        s.parse().ok()
+    }
 }
 
 fn to_hypothesis_response(h: &crate::storage::sqlite::Hypothesis) -> HypothesisResponse {

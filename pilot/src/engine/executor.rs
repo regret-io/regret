@@ -23,11 +23,21 @@ pub struct ExecutionConfig {
     pub batch_size: usize,
     pub checkpoint_every: usize,
     pub fail_fast: bool,
+    /// Max ops. None = unlimited.
+    pub max_ops: Option<usize>,
+    /// Max duration in seconds. None = unlimited.
+    pub duration_secs: Option<u64>,
 }
 
 impl Default for ExecutionConfig {
     fn default() -> Self {
-        Self { batch_size: 100, checkpoint_every: 10, fail_fast: true }
+        Self {
+            batch_size: 100,
+            checkpoint_every: 10,
+            fail_fast: true,
+            max_ops: None,
+            duration_secs: None,
+        }
     }
 }
 
@@ -87,6 +97,7 @@ pub struct Executor {
     pub run_id: String,
     pub config: ExecutionConfig,
     pub tolerance: Option<Tolerance>,
+    pub generate_params: crate::generator::GenerateParams,
     pub reference: Box<dyn ReferenceModel>,
     pub cancel: CancellationToken,
     pub progress: Arc<RwLock<ProgressInfo>>,
@@ -147,91 +158,110 @@ impl Executor {
         self.reference.clear();
         self.rocks.clear_state(&self.hypothesis_id).context("failed to clear state")?;
 
-        // Read all ops from origin
-        let mut all_ops = Vec::new();
-        let mut offset = 0usize;
-        loop {
-            let chunk = self.rocks.read_origin_batch(&self.hypothesis_id, offset, 1000)?;
-            if chunk.is_empty() { break; }
-            for data in &chunk {
-                let json: serde_json::Value = serde_json::from_slice(data)?;
-                if let Some(op) = parse_origin_op(&json) {
-                    all_ops.push(op);
-                }
-            }
-            offset += chunk.len();
-        }
+        // Create generator for on-the-fly op production
+        let mut generator = crate::generator::kv::BasicKvGenerator::new(&self.generate_params);
+        let run_start = Instant::now();
+        let max_ops = self.config.max_ops.unwrap_or(0);
+        let duration_secs = self.config.duration_secs.unwrap_or(0);
 
-        {
-            let mut p = self.progress.write().await;
-            p.total_ops = all_ops.len();
-        }
-
-        // Split into batches: delete_range gets its own batch, others grouped by batch_size
-        let batches = self.split_into_batches(&all_ops);
-        {
-            let mut p = self.progress.write().await;
-            p.total_batches = batches.len();
-        }
-
+        let mut total_ops = 0usize;
         let mut batch_counter = 0usize;
         let mut checkpoint_counter = 0usize;
 
-        for batch in &batches {
+        loop {
+            // Check stop conditions
             if self.cancel.is_cancelled() {
                 return Ok(StopReason::Stopped);
             }
+            if max_ops > 0 && total_ops >= max_ops {
+                break;
+            }
+            if duration_secs > 0 && run_start.elapsed().as_secs() >= duration_secs {
+                break;
+            }
 
-            let batch_id = format!("batch-{batch_counter:04}");
-            self.emit_event(Event::batch_started(&self.run_id, &batch_id, batch_counter, batch.len()));
-            let start = Instant::now();
+            // Generate a batch of ops
+            let remaining = if max_ops > 0 { max_ops - total_ops } else { self.config.batch_size };
+            let batch_count = remaining.min(self.config.batch_size);
+            let raw_ops = generator.gen_batch(batch_count);
 
-            // Send batch to adapter
-            let results = if let Some(client) = &self.adapter_client {
-                match client.execute_batch(&batch_id, batch).await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        self.emit_event(Event::batch_failed(&self.run_id, &batch_id, 1, &e.to_string()));
-                        return Ok(StopReason::Error(e.to_string()));
+            // Convert OriginOp to Operation
+            let ops: Vec<Operation> = raw_ops.iter()
+                .filter_map(|o| {
+                    if let crate::generator::types::OriginOp::Operation(op) = o {
+                        parse_origin_op(&serde_json::to_value(o).ok()?)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if ops.is_empty() {
+                break;
+            }
+
+            // Split into conflict-free sub-batches
+            let batches = self.split_into_batches(&ops);
+
+            for batch in &batches {
+                if self.cancel.is_cancelled() {
+                    return Ok(StopReason::Stopped);
+                }
+
+                let batch_id = format!("batch-{batch_counter:04}");
+                self.emit_event(Event::batch_started(&self.run_id, &batch_id, batch_counter, batch.len()));
+                let start = Instant::now();
+
+                let results = if let Some(client) = &self.adapter_client {
+                    match client.execute_batch(&batch_id, batch).await {
+                        Ok(r) => r,
+                        Err(e) => {
+                            self.emit_event(Event::batch_failed(&self.run_id, &batch_id, 1, &e.to_string()));
+                            return Ok(StopReason::Error(e.to_string()));
+                        }
+                    }
+                } else {
+                    self.build_mock_results(batch)
+                };
+
+                let duration_ms = start.elapsed().as_millis() as u64;
+                self.emit_event(Event::batch_completed(&self.run_id, &batch_id, duration_ms));
+
+                let response = AdapterBatchResponse { batch_id: batch_id.clone(), results };
+                let failures = self.reference.process_response(batch, &response, &self.tolerance);
+                if !failures.is_empty() {
+                    let mut p = self.progress.write().await;
+                    p.failed_response_ops += failures.len();
+                    drop(p);
+                    for f in &failures {
+                        self.emit_event(Event::response_failed(&self.run_id, &batch_id, f));
+                    }
+                    if self.config.fail_fast {
+                        return Ok(StopReason::ResponseFailed);
                     }
                 }
-            } else {
-                self.build_mock_results(batch)
-            };
 
-            let duration_ms = start.elapsed().as_millis() as u64;
-            self.emit_event(Event::batch_completed(&self.run_id, &batch_id, duration_ms));
-
-            // Reference processes results
-            let response = AdapterBatchResponse { batch_id: batch_id.clone(), results };
-            let failures = self.reference.process_response(batch, &response, &self.tolerance);
-            if !failures.is_empty() {
-                let mut p = self.progress.write().await;
-                p.failed_response_ops += failures.len();
-                drop(p);
-                for f in &failures {
-                    self.emit_event(Event::response_failed(&self.run_id, &batch_id, f));
+                {
+                    let mut p = self.progress.write().await;
+                    p.completed_ops += batch.len();
+                    p.completed_batches += 1;
                 }
-                if self.config.fail_fast {
-                    return Ok(StopReason::ResponseFailed);
+
+                batch_counter += 1;
+
+                if batch_counter % self.config.checkpoint_every == 0 {
+                    checkpoint_counter += 1;
+                    let r = self.run_checkpoint(checkpoint_counter).await?;
+                    if r == StopReason::CheckpointFailed && self.config.fail_fast {
+                        return Ok(StopReason::CheckpointFailed);
+                    }
                 }
             }
 
+            total_ops += ops.len();
             {
                 let mut p = self.progress.write().await;
-                p.completed_ops += batch.len();
-                p.completed_batches += 1;
-            }
-
-            batch_counter += 1;
-
-            // Checkpoint
-            if batch_counter % self.config.checkpoint_every == 0 {
-                checkpoint_counter += 1;
-                let r = self.run_checkpoint(checkpoint_counter).await?;
-                if r == StopReason::CheckpointFailed && self.config.fail_fast {
-                    return Ok(StopReason::CheckpointFailed);
-                }
+                p.total_ops = total_ops;
             }
         }
 

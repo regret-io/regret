@@ -67,16 +67,15 @@ pub struct ExecutionConfigRequest {
     pub checkpoint_every: usize,
     #[serde(default = "default_fail_fast")]
     pub fail_fast: bool,
-    #[serde(default = "default_timeout")]
-    pub timeout: String,
-    #[serde(default)]
-    pub retry: RetryConfigRequest,
+    /// Max ops to execute. Omit for unlimited.
+    pub max_ops: Option<usize>,
+    /// Max duration (e.g. "30m", "1h", "300s"). Omit for unlimited.
+    pub duration: Option<String>,
 }
 
 fn default_batch_size() -> usize { 100 }
 fn default_checkpoint_every() -> usize { 10 }
 fn default_fail_fast() -> bool { true }
-fn default_timeout() -> String { "30m".to_string() }
 
 impl Default for ExecutionConfigRequest {
     fn default() -> Self {
@@ -84,32 +83,8 @@ impl Default for ExecutionConfigRequest {
             batch_size: default_batch_size(),
             checkpoint_every: default_checkpoint_every(),
             fail_fast: default_fail_fast(),
-            timeout: default_timeout(),
-            retry: RetryConfigRequest::default(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RetryConfigRequest {
-    #[serde(default = "default_max_attempts")]
-    pub max_attempts: u32,
-    #[serde(default = "default_initial_delay")]
-    pub initial_delay: String,
-    #[serde(default = "default_max_delay")]
-    pub max_delay: String,
-}
-
-fn default_max_attempts() -> u32 { 3 }
-fn default_initial_delay() -> String { "1s".to_string() }
-fn default_max_delay() -> String { "30s".to_string() }
-
-impl Default for RetryConfigRequest {
-    fn default() -> Self {
-        Self {
-            max_attempts: default_max_attempts(),
-            initial_delay: default_initial_delay(),
-            max_delay: default_max_delay(),
+            max_ops: None,
+            duration: None,
         }
     }
 }

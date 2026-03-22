@@ -59,6 +59,7 @@ impl HypothesisManager {
     pub async fn start_run(
         &mut self,
         config: ExecutionConfig,
+        generate_params: crate::generator::GenerateParams,
         adapter: Option<AdapterRecord>,
         adapter_addr_override: Option<String>,
     ) -> Result<(String, Arc<RwLock<ProgressInfo>>)> {
@@ -115,6 +116,7 @@ impl HypothesisManager {
             run_id: run_id.clone(),
             config,
             tolerance: self.tolerance.clone(),
+            generate_params,
             reference,
             cancel: cancel.clone(),
             progress: progress.clone(),
