@@ -271,7 +271,7 @@ function EventBadge({ type }: { type: string }) {
     RunStopped: "bg-amber-500/10 text-amber-400 border-amber-800",
     BatchStarted: "bg-zinc-800 text-zinc-400 border-zinc-700",
     BatchCompleted: "bg-zinc-800 text-zinc-400 border-zinc-700",
-    OpExecuted: "bg-zinc-800/50 text-zinc-500 border-zinc-700",
+    OperationBatch: "bg-indigo-500/10 text-indigo-400 border-indigo-800",
     BatchFailed: "bg-red-500/10 text-red-400 border-red-800",
     CheckpointPassed: "bg-emerald-500/10 text-emerald-400 border-emerald-800",
     CheckpointFailed: "bg-red-500/10 text-red-400 border-red-800",
@@ -287,25 +287,37 @@ function EventBadge({ type }: { type: string }) {
 function eventDetails(ev: EventItem): string {
   const parts: string[] = [];
   if (ev.batch_id) parts.push(`batch=${ev.batch_id}`);
-  if (ev.op_id) parts.push(`${ev.op_id}`);
-  if (ev.op_type) parts.push(`${ev.op_type}`);
-  if (ev.payload && typeof ev.payload === "object") {
-    const p = ev.payload as Record<string, unknown>;
-    if (p.key) parts.push(`key=${p.key}`);
-    if (p.value) parts.push(`value=${p.value}`);
-    if (p.start) parts.push(`start=${p.start}`);
-    if (p.end) parts.push(`end=${p.end}`);
-    if (p.prefix) parts.push(`prefix=${p.prefix}`);
+
+  // OperationBatch — show ops summary
+  if (ev.type === "OperationBatch" && Array.isArray(ev.ops)) {
+    const ops = ev.ops as Array<{op_id: string; op_type: string; payload: Record<string, unknown>; status: string}>;
+    parts.push(`${ops.length} ops`);
+    const types = new Map<string, number>();
+    for (const op of ops) {
+      types.set(op.op_type, (types.get(op.op_type) || 0) + 1);
+    }
+    const summary = Array.from(types.entries()).map(([t, c]) => `${t}:${c}`).join(", ");
+    parts.push(summary);
+    const failed = ops.filter(o => o.status !== "ok" && o.status !== "not_found");
+    if (failed.length > 0) parts.push(`⚠ ${failed.length} non-ok`);
+    return parts.join(" | ");
   }
-  if (ev.status && ev.type === "OpExecuted") parts.push(`→ ${ev.status}`);
+
+  // ResponseFailed — show the mismatch clearly
+  if (ev.type === "ResponseFailed") {
+    if (ev.op_id) parts.push(`${ev.op_id}`);
+    if (ev.op) parts.push(`${ev.op}`);
+    if (ev.expected) parts.push(`expected: ${ev.expected}`);
+    if (ev.actual) parts.push(`actual: ${ev.actual}`);
+    return parts.join(" | ");
+  }
+
   if (ev.duration_ms !== undefined) parts.push(`${ev.duration_ms}ms`);
   if (ev.size !== undefined) parts.push(`ops=${ev.size}`);
   if (ev.keys_checked !== undefined) parts.push(`keys=${ev.keys_checked}`);
   if (ev.failures !== undefined) parts.push(`failures=${ev.failures}`);
   if (ev.pass_rate !== undefined) parts.push(`pass_rate=${ev.pass_rate}`);
   if (ev.stop_reason) parts.push(`reason=${ev.stop_reason}`);
-  if (ev.expected) parts.push(`expected=${ev.expected}`);
-  if (ev.actual) parts.push(`actual=${ev.actual}`);
   if (ev.error) parts.push(`error=${ev.error}`);
   return parts.join(" | ") || "-";
 }
