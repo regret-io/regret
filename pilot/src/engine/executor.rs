@@ -87,17 +87,18 @@ impl std::fmt::Display for StopReason {
     }
 }
 
-/// Adapter client abstraction for executing batches and reading state.
+/// Adapter client abstraction.
 #[async_trait::async_trait]
 pub trait AdapterClient: Send + Sync {
-    async fn execute_batch(
-        &self,
-        batch_id: &str,
-        trace_id: &str,
-        ops: &[Operation],
-    ) -> Result<AdapterBatchResponse>;
+    /// Stream ops to adapter via bidirectional gRPC, return all results.
+    /// Fences in the ops list act as sync points.
+    async fn execute_ops(&self, ops: &[Operation]) -> Result<Vec<AdapterOpResult>>;
 
+    /// Read all records under a key prefix (checkpoint).
     async fn read_state(&self, key_prefix: &str) -> Result<HashMap<String, Option<RecordState>>>;
+
+    /// Delete all data under a key prefix (hypothesis deletion).
+    async fn cleanup(&self, key_prefix: &str) -> Result<()>;
 }
 
 /// The main execution loop.
@@ -212,93 +213,80 @@ impl Executor {
         {
             let mut progress = self.progress.write().await;
             progress.total_ops = total_ops;
-            progress.total_batches = (total_ops + self.config.batch_size - 1) / self.config.batch_size;
         }
 
-        // 5. Main loop — read ops in chunks, split at fence boundaries into sub-batches.
-        //    Each sub-batch contains either writes (before fence) or reads (after fence),
-        //    ensuring the adapter's concurrent execution doesn't cause non-determinism.
-        let mut offset = 0usize;
-        let mut batch_counter = 0usize;
-        let mut checkpoint_counter = 0usize;
-
-        while offset < total_ops {
-            if self.cancel.is_cancelled() {
-                return Ok(StopReason::Stopped);
-            }
-
-            // Read a chunk of ops from RocksDB
-            let chunk_data = self
+        // 5. Read all ops from origin
+        let mut all_ops = Vec::new();
+        let mut read_offset = 0usize;
+        loop {
+            let chunk = self
                 .rocks
-                .read_origin_batch(&self.hypothesis_id, offset, self.config.batch_size)
-                .context("failed to read origin batch")?;
-
-            if chunk_data.is_empty() {
+                .read_origin_batch(&self.hypothesis_id, read_offset, 1000)
+                .context("failed to read origin")?;
+            if chunk.is_empty() {
                 break;
             }
-
-            let chunk_size = chunk_data.len();
-
-            // Parse all ops in the chunk
-            let mut all_ops = Vec::new();
-            for data in &chunk_data {
+            for data in &chunk {
                 let json: serde_json::Value = serde_json::from_slice(data)?;
                 if let Some(op) = parse_origin_op(&json) {
                     all_ops.push(op);
                 }
             }
+            read_offset += chunk.len();
+        }
 
-            // Split at fence boundaries into sub-batches:
-            // [writes...] [fence] [reads...] [writes...] [fence] [reads...]
-            // Each segment (writes or reads between fences) becomes one batch.
-            let mut sub_batch = Vec::new();
-            for op in all_ops {
-                let is_fence = matches!(op.kind, OpKind::Fence);
-                if is_fence {
-                    // Send accumulated sub-batch before the fence
-                    if !sub_batch.is_empty() {
-                        let result = self
-                            .execute_sub_batch(&mut batch_counter, offset, &sub_batch)
-                            .await?;
-                        if result != StopReason::Completed && self.config.fail_fast {
-                            return Ok(result);
-                        }
-                    }
-                    sub_batch.clear();
-                } else {
-                    sub_batch.push(op);
+        // 6. Stream all ops to adapter via bidirectional gRPC
+        self.emit_event(Event::batch_started(&self.run_id, "stream", 0, all_ops.len()));
+        let stream_start = Instant::now();
+
+        let adapter_results = if let Some(client) = &self.adapter_client {
+            match client.execute_ops(&all_ops).await {
+                Ok(results) => Some(results),
+                Err(e) => {
+                    self.emit_event(Event::batch_failed(&self.run_id, "stream", 1, &e.to_string()));
+                    return Ok(StopReason::Error(e.to_string()));
                 }
             }
+        } else {
+            // No adapter — build mock results for local testing
+            let mock = self.build_mock_response(&all_ops);
+            Some(mock.results)
+        };
 
-            // Send remaining ops after the last fence
-            if !sub_batch.is_empty() {
-                let result = self
-                    .execute_sub_batch(&mut batch_counter, offset, &sub_batch)
-                    .await?;
-                if result != StopReason::Completed && self.config.fail_fast {
-                    return Ok(result);
-                }
-            }
+        let duration_ms = stream_start.elapsed().as_millis() as u64;
+        self.emit_event(Event::batch_completed(&self.run_id, "stream", duration_ms));
 
-            // Update progress
-            {
+        // 7. Reference processes results: writes update state, reads verify
+        if let Some(results) = &adapter_results {
+            // Build a map from op_id -> result for the reference
+            let response = crate::reference::AdapterBatchResponse {
+                batch_id: "stream".to_string(),
+                results: results.clone(),
+            };
+            let failures = self.reference.process_response(&all_ops, &response, &self.tolerance);
+            if !failures.is_empty() {
                 let mut progress = self.progress.write().await;
-                progress.completed_ops += chunk_size;
-            }
+                progress.failed_response_ops += failures.len();
+                drop(progress);
 
-            offset += chunk_size;
+                for failure in &failures {
+                    self.emit_event(Event::response_failed(&self.run_id, "stream", failure));
+                }
 
-            // Layer 2: Checkpoint every N batches
-            if batch_counter > 0 && batch_counter % self.config.checkpoint_every == 0 {
-                checkpoint_counter += 1;
-                let checkpoint_result = self.run_checkpoint(checkpoint_counter).await?;
-                if checkpoint_result == StopReason::CheckpointFailed && self.config.fail_fast {
-                    return Ok(StopReason::CheckpointFailed);
+                if self.config.fail_fast {
+                    return Ok(StopReason::ResponseFailed);
                 }
             }
         }
 
-        // Final checkpoint
+        {
+            let mut progress = self.progress.write().await;
+            progress.completed_ops = all_ops.len();
+            progress.completed_batches = 1;
+        }
+
+        // 8. Checkpoint
+        let mut checkpoint_counter = 0usize;
         checkpoint_counter += 1;
         self.run_checkpoint(checkpoint_counter).await?;
 
@@ -367,97 +355,6 @@ impl Executor {
                 Ok(StopReason::CheckpointFailed)
             } else {
                 Ok(StopReason::Completed)
-            }
-        }
-    }
-
-    /// Execute a sub-batch (ops between two fences) against the adapter and reference.
-    async fn execute_sub_batch(
-        &mut self,
-        batch_counter: &mut usize,
-        offset: usize,
-        ops: &[Operation],
-    ) -> Result<StopReason> {
-        let batch_id = format!("batch-{:04}", *batch_counter);
-        *batch_counter += 1;
-
-        self.emit_event(Event::batch_started(&self.run_id, &batch_id, offset, ops.len()));
-        let batch_start = Instant::now();
-
-        let adapter_response = if let Some(client) = &self.adapter_client {
-            match self.execute_with_retry(client.as_ref(), &batch_id, ops).await {
-                Ok(resp) => Some(resp),
-                Err(e) => {
-                    self.emit_event(Event::batch_failed(
-                        &self.run_id,
-                        &batch_id,
-                        self.config.max_retry_attempts,
-                        &e.to_string(),
-                    ));
-                    return Ok(StopReason::Error(e.to_string()));
-                }
-            }
-        } else {
-            self.reference.process_response(ops, &self.build_mock_response(ops), &self.tolerance);
-            None
-        };
-
-        let duration_ms = batch_start.elapsed().as_millis() as u64;
-        self.emit_event(Event::batch_completed(&self.run_id, &batch_id, duration_ms));
-
-        if let Some(response) = &adapter_response {
-            let failures = self.reference.process_response(ops, response, &self.tolerance);
-            if !failures.is_empty() {
-                let mut progress = self.progress.write().await;
-                progress.failed_response_ops += failures.len();
-                drop(progress);
-
-                for failure in &failures {
-                    self.emit_event(Event::response_failed(&self.run_id, &batch_id, failure));
-                }
-
-                if self.config.fail_fast {
-                    return Ok(StopReason::ResponseFailed);
-                }
-            }
-        }
-
-        {
-            let mut progress = self.progress.write().await;
-            progress.completed_batches += 1;
-        }
-
-        Ok(StopReason::Completed)
-    }
-
-    async fn execute_with_retry(
-        &self,
-        client: &dyn AdapterClient,
-        batch_id: &str,
-        ops: &[Operation],
-    ) -> Result<AdapterBatchResponse> {
-        let mut attempt = 0u32;
-        let mut delay_ms = self.config.initial_retry_delay_ms;
-
-        loop {
-            match client.execute_batch(batch_id, &self.run_id, ops).await {
-                Ok(response) => return Ok(response),
-                Err(e) => {
-                    attempt += 1;
-                    if attempt >= self.config.max_retry_attempts {
-                        return Err(e.context(format!(
-                            "batch {batch_id} failed after {attempt} attempts"
-                        )));
-                    }
-                    warn!(
-                        batch_id,
-                        attempt,
-                        error = %e,
-                        "batch failed, retrying after {delay_ms}ms"
-                    );
-                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                    delay_ms = (delay_ms * 2).min(self.config.max_retry_delay_ms);
-                }
             }
         }
     }

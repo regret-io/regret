@@ -45,28 +45,7 @@ public class OxiaKVAdapter implements Adapter {
     }
 
     @Override
-    public BatchResponse executeBatch(Batch batch) throws Exception {
-        LOG.info("executeBatch batchId={} traceId={} items={}", batch.batchId(), batch.traceId(), batch.items().size());
-        List<OpResult> results = new ArrayList<>();
-        List<CompletableFuture<OpResult>> pending = new ArrayList<>();
-
-        for (Item item : batch.items()) {
-            switch (item) {
-                case Item.Op(Operation op) ->
-                        pending.add(CompletableFuture.supplyAsync(() -> executeOp(op)));
-                case Item.Fence() -> {
-                    LOG.debug("  fence — waiting for {} pending ops", pending.size());
-                    for (var f : pending) results.add(f.get());
-                    pending.clear();
-                }
-            }
-        }
-        for (var f : pending) results.add(f.get());
-
-        return new BatchResponse(batch.batchId(), results);
-    }
-
-    private OpResult executeOp(Operation op) {
+    public OpResult executeOp(Operation op) {
         LOG.debug("  op={} id={} payload={}", op.opType(), op.opId(),
                 op.payload() != null ? new String(op.payload(), StandardCharsets.UTF_8) : "null");
         try {

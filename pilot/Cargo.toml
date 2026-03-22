@@ -26,6 +26,7 @@ prost-types = { workspace = true }
 # Async
 tokio = { workspace = true }
 tokio-util = "0.7"
+tokio-stream = "0.1"
 
 # Serialization
 serde = { workspace = true }

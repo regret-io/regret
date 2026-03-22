@@ -11,6 +11,7 @@ import regret.v1.Regret;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 public class RegretAdapterServer {
 
@@ -18,19 +19,16 @@ public class RegretAdapterServer {
 
     public static void serve(Adapter adapter) throws Exception {
         int port = 9090;
-
         Server server = ServerBuilder.forPort(port)
                 .addService(new AdapterServiceImpl(adapter))
                 .build()
                 .start();
 
         LOG.info("Adapter gRPC server started on port {}", port);
-
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOG.info("Shutting down adapter server");
             server.shutdown();
         }));
-
         server.awaitTermination();
     }
 
@@ -43,78 +41,96 @@ public class RegretAdapterServer {
         }
 
         @Override
-        public void executeBatch(
-                Regret.BatchRequest request,
-                StreamObserver<Regret.BatchResponse> responseObserver) {
+        public StreamObserver<Regret.ExecuteRequest> execute(
+                StreamObserver<Regret.ExecuteResponse> responseObserver) {
 
-            try {
-                List<Item> items = new ArrayList<>();
-                for (Regret.Item protoItem : request.getItemsList()) {
-                    if (protoItem.hasFence()) {
-                        items.add(new Item.Fence());
-                    } else if (protoItem.hasOp()) {
-                        Regret.Operation protoOp = protoItem.getOp();
-                        items.add(new Item.Op(new Operation(
+            return new StreamObserver<>() {
+                private final List<CompletableFuture<Void>> pending = new ArrayList<>();
+
+                @Override
+                public void onNext(Regret.ExecuteRequest request) {
+                    if (request.hasOp()) {
+                        Regret.Operation protoOp = request.getOp();
+                        Operation op = new Operation(
                                 protoOp.getOpId(),
                                 OpType.fromString(protoOp.getOpType()),
-                                protoOp.getPayload().toByteArray())));
+                                protoOp.getPayload().toByteArray());
+
+                        // Execute concurrently, send result when done
+                        CompletableFuture<Void> future = CompletableFuture
+                                .supplyAsync(() -> adapter.executeOp(op))
+                                .thenAccept(result -> {
+                                    Regret.OpResult.Builder b = Regret.OpResult.newBuilder()
+                                            .setOpId(result.opId())
+                                            .setStatus(result.status());
+                                    if (result.payload() != null) b.setPayload(ByteString.copyFrom(result.payload()));
+                                    if (result.message() != null) b.setMessage(result.message());
+                                    synchronized (responseObserver) {
+                                        responseObserver.onNext(Regret.ExecuteResponse.newBuilder()
+                                                .setResult(b.build()).build());
+                                    }
+                                });
+                        pending.add(future);
+
+                    } else if (request.hasFence()) {
+                        // Wait for all pending ops, then ack
+                        long fenceId = request.getFence().getFenceId();
+                        try {
+                            CompletableFuture.allOf(pending.toArray(new CompletableFuture[0])).join();
+                        } catch (Exception e) {
+                            LOG.error("Error at fence {}", fenceId, e);
+                        }
+                        pending.clear();
+                        synchronized (responseObserver) {
+                            responseObserver.onNext(Regret.ExecuteResponse.newBuilder()
+                                    .setFenceAck(Regret.FenceAck.newBuilder().setFenceId(fenceId).build())
+                                    .build());
+                        }
                     }
                 }
 
-                Batch batch = new Batch(request.getBatchId(), request.getTraceId(), items);
-                org.slf4j.MDC.put("trace_id", request.getTraceId());
-
-                BatchResponse sdkResponse = adapter.executeBatch(batch);
-
-                Regret.BatchResponse.Builder responseBuilder = Regret.BatchResponse.newBuilder()
-                        .setBatchId(sdkResponse.batchId());
-
-                for (OpResult result : sdkResponse.results()) {
-                    Regret.OpResult.Builder b = Regret.OpResult.newBuilder()
-                            .setOpId(result.opId())
-                            .setStatus(result.status());
-                    if (result.payload() != null) b.setPayload(ByteString.copyFrom(result.payload()));
-                    if (result.message() != null) b.setMessage(result.message());
-                    responseBuilder.addResults(b.build());
+                @Override
+                public void onError(Throwable t) {
+                    LOG.error("Execute stream error", t);
                 }
 
-                responseObserver.onNext(responseBuilder.build());
-                responseObserver.onCompleted();
-
-            } catch (Exception e) {
-                LOG.error("executeBatch failed", e);
-                responseObserver.onError(
-                        io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
-            } finally {
-                org.slf4j.MDC.remove("trace_id");
-            }
+                @Override
+                public void onCompleted() {
+                    try {
+                        CompletableFuture.allOf(pending.toArray(new CompletableFuture[0])).join();
+                    } catch (Exception e) {
+                        LOG.error("Error draining pending ops", e);
+                    }
+                    pending.clear();
+                    synchronized (responseObserver) {
+                        responseObserver.onCompleted();
+                    }
+                }
+            };
         }
 
         @Override
-        public void readState(
-                Regret.ReadStateRequest request,
+        public void readState(Regret.ReadStateRequest request,
                 StreamObserver<Regret.ReadStateResponse> responseObserver) {
             try {
                 List<Record> records = adapter.readState(request.getKeyPrefix());
                 Regret.ReadStateResponse.Builder b = Regret.ReadStateResponse.newBuilder();
-                for (Record record : records) {
-                    Regret.Record.Builder rb = Regret.Record.newBuilder().setKey(record.getKey());
-                    if (record.getValue() != null) rb.setValue(ByteString.copyFrom(record.getValue()));
-                    if (record.getMetadata() != null) rb.putAllMetadata(record.getMetadata());
+                for (Record r : records) {
+                    Regret.Record.Builder rb = Regret.Record.newBuilder().setKey(r.getKey());
+                    if (r.getValue() != null) rb.setValue(ByteString.copyFrom(r.getValue()));
+                    if (r.getMetadata() != null) rb.putAllMetadata(r.getMetadata());
                     b.addRecords(rb.build());
                 }
                 responseObserver.onNext(b.build());
                 responseObserver.onCompleted();
             } catch (Exception e) {
                 LOG.error("readState failed", e);
-                responseObserver.onError(
-                        io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
+                responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
             }
         }
 
         @Override
-        public void cleanup(
-                Regret.CleanupRequest request,
+        public void cleanup(Regret.CleanupRequest request,
                 StreamObserver<Regret.CleanupResponse> responseObserver) {
             try {
                 adapter.cleanup(request.getKeyPrefix());
@@ -122,8 +138,7 @@ public class RegretAdapterServer {
                 responseObserver.onCompleted();
             } catch (Exception e) {
                 LOG.error("cleanup failed", e);
-                responseObserver.onError(
-                        io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
+                responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
             }
         }
     }
