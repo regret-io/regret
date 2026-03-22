@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Channel;
-use tracing::info;
 
 use regret_proto::regret_v1::adapter_service_client::AdapterServiceClient;
 use regret_proto::regret_v1::{self as proto};
@@ -19,69 +16,38 @@ pub struct GrpcAdapterClient {
 impl GrpcAdapterClient {
     pub async fn connect(addr: &str) -> Result<Self> {
         let url = if addr.starts_with("http") { addr.to_string() } else { format!("http://{addr}") };
-        let channel = Channel::from_shared(url)?.connect().await.context("failed to connect to adapter")?;
+        let channel = Channel::from_shared(url)?.connect().await.context("failed to connect")?;
         Ok(Self { client: AdapterServiceClient::new(channel) })
     }
 }
 
 #[async_trait::async_trait]
 impl AdapterClient for GrpcAdapterClient {
-    async fn execute_ops(&self, ops: &[Operation]) -> Result<Vec<AdapterOpResult>> {
+    async fn execute_batch(
+        &self,
+        batch_id: &str,
+        ops: &[Operation],
+    ) -> Result<Vec<AdapterOpResult>> {
         let mut client = self.client.clone();
-        let (tx, rx) = mpsc::channel::<proto::ExecuteRequest>(256);
 
-        // Spawn sender FIRST so the stream has data when execute() reads it
-        let ops_owned: Vec<Operation> = ops.to_vec();
-        let send_handle = tokio::spawn(async move {
-            let mut fence_counter = 0u64;
-            for op in &ops_owned {
-                let request = match &op.kind {
-                    OpKind::Fence => {
-                        fence_counter += 1;
-                        proto::ExecuteRequest {
-                            request: Some(proto::execute_request::Request::Fence(
-                                proto::Fence { fence_id: fence_counter },
-                            )),
-                        }
-                    }
-                    _ => {
-                        let (op_type, payload) = serialize_op(&op.kind);
-                        proto::ExecuteRequest {
-                            request: Some(proto::execute_request::Request::Op(
-                                proto::Operation { op_id: op.id.clone(), op_type, payload: payload.into() },
-                            )),
-                        }
-                    }
-                };
-                if tx.send(request).await.is_err() {
-                    break;
-                }
-            }
-            // tx dropped here -> stream closes
-        });
+        let proto_ops: Vec<proto::Operation> = ops.iter()
+            .filter(|o| !o.id.is_empty())
+            .map(|o| {
+                let (op_type, payload) = serialize_op(&o.kind);
+                proto::Operation { op_id: o.id.clone(), op_type, payload: payload.into() }
+            })
+            .collect();
 
-        // Open bidirectional stream — sender is already feeding it
         let response = client
-            .execute(ReceiverStream::new(rx))
+            .execute_batch(proto::BatchRequest {
+                batch_id: batch_id.to_string(),
+                ops: proto_ops,
+            })
             .await
-            .context("Execute stream failed")?;
-        let mut response_stream = response.into_inner();
+            .context("ExecuteBatch failed")?
+            .into_inner();
 
-        // Collect results
-        let mut results = Vec::new();
-        while let Some(resp) = response_stream.message().await.context("reading response")? {
-            match resp.response {
-                Some(proto::execute_response::Response::Result(r)) => {
-                    results.push(parse_op_result(r));
-                }
-                Some(proto::execute_response::Response::FenceAck(_)) => {}
-                None => {}
-            }
-        }
-
-        send_handle.await.context("send task failed")?;
-        info!(ops = ops.len(), results = results.len(), "Execute stream completed");
-        Ok(results)
+        Ok(response.results.into_iter().map(parse_op_result).collect())
     }
 
     async fn read_state(&self, key_prefix: &str) -> Result<HashMap<String, Option<RecordState>>> {
@@ -107,7 +73,7 @@ impl AdapterClient for GrpcAdapterClient {
 
     async fn cleanup(&self, key_prefix: &str) -> Result<()> {
         let mut client = self.client.clone();
-        client.cleanup(proto::CleanupRequest { key_prefix: key_prefix.to_string() }).await.context("Cleanup failed")?;
+        client.cleanup(proto::CleanupRequest { key_prefix: key_prefix.to_string() }).await?;
         Ok(())
     }
 }
@@ -119,9 +85,7 @@ fn parse_op_result(r: proto::OpResult) -> AdapterOpResult {
         serde_json::from_slice(&r.payload).unwrap_or_default()
     };
     AdapterOpResult {
-        op_id: r.op_id,
-        op: String::new(),
-        status: r.status,
+        op_id: r.op_id, op: String::new(), status: r.status,
         value: payload.get("value").and_then(|v| v.as_str()).map(|s| s.to_string()),
         version_id: payload.get("version_id").and_then(|v| v.as_u64()),
         records: payload.get("records").and_then(|v| v.as_array().map(|arr| arr.iter().filter_map(|r| Some(RangeRecord { key: r.get("key")?.as_str()?.to_string(), value: r.get("value")?.as_str()?.to_string(), version_id: r.get("version_id")?.as_u64().unwrap_or(0) })).collect())),

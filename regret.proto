@@ -2,9 +2,8 @@ syntax = "proto3";
 package regret.v1;
 
 service AdapterService {
-    // Bidirectional stream for executing operations.
-    // Pilot streams ops and fences, adapter streams results and fence acks.
-    rpc Execute(stream ExecuteRequest) returns (stream ExecuteResponse);
+    // Execute a batch of operations. Ops within a batch execute concurrently.
+    rpc ExecuteBatch(BatchRequest) returns (BatchResponse);
 
     // Read all records under a key prefix (checkpoint verification).
     rpc ReadState(ReadStateRequest) returns (ReadStateResponse);
@@ -13,18 +12,9 @@ service AdapterService {
     rpc Cleanup(CleanupRequest) returns (CleanupResponse);
 }
 
-message ExecuteRequest {
-    oneof request {
-        Operation op = 1;
-        Fence fence = 2;
-    }
-}
-
-message ExecuteResponse {
-    oneof response {
-        OpResult result = 1;
-        FenceAck fence_ack = 2;
-    }
+message BatchRequest {
+    string            batch_id = 1;
+    repeated Operation ops     = 2;
 }
 
 message Operation {
@@ -33,12 +23,9 @@ message Operation {
     bytes  payload = 3;
 }
 
-message Fence {
-    uint64 fence_id = 1;
-}
-
-message FenceAck {
-    uint64 fence_id = 1;
+message BatchResponse {
+    string           batch_id = 1;
+    repeated OpResult results = 2;
 }
 
 message OpResult {

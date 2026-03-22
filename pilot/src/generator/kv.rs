@@ -33,68 +33,48 @@ impl BasicKvGenerator {
 
     pub fn generate(mut self) -> Vec<OriginOp> {
         let mut ops = Vec::new();
-        let mut writes_since_fence = 0;
-        // Track keys touched in current write segment to detect conflicts
-        let mut segment_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         while self.op_counter < self.params.ops {
-            if writes_since_fence >= self.params.fence_every && self.op_counter < self.params.ops {
-                ops.push(OriginOp::fence());
-                writes_since_fence = 0;
-                segment_keys.clear();
-
-                let read_count = self.compute_read_count();
-                for _ in 0..read_count {
-                    if self.op_counter >= self.params.ops {
-                        break;
-                    }
-                    ops.push(self.gen_read_op());
-                }
-                continue;
-            }
-
-            // Generate the write op, check for key conflicts
-            let write_op = self.gen_write_op();
-            let touched = self.keys_touched_by(&write_op);
-
-            // If any key in this op was already touched in this segment, insert a fence first
-            if touched.iter().any(|k| segment_keys.contains(k)) {
-                ops.push(OriginOp::fence());
-                segment_keys.clear();
-                writes_since_fence = 0;
-            }
-
-            for k in &touched {
-                segment_keys.insert(k.clone());
-            }
-            ops.push(write_op);
-            writes_since_fence += 1;
-        }
-
-        // Final fence + trailing reads
-        if writes_since_fence > 0 {
-            ops.push(OriginOp::fence());
-            let read_count = self.compute_read_count().min(5);
-            for _ in 0..read_count {
-                if self.versions.is_empty() && self.index_keys.is_empty() && self.sequence_prefixes.is_empty() {
-                    break;
-                }
-                let id = self.next_id();
-                ops.push(self.gen_read_op_with_id(id));
-            }
+            ops.push(self.gen_op());
         }
 
         ops
     }
 
-    fn compute_read_count(&self) -> usize {
-        let read_frac = self.params.read_fraction();
-        if read_frac <= 0.0 { return 0; }
-        let total = self.params.fence_every as f64 * read_frac / (1.0 - read_frac);
-        (total as usize).max(1)
-    }
+    /// Generate a single op based on the full workload weights.
+    fn gen_op(&mut self) -> OriginOp {
+        let id = self.next_id();
+        let roll: f64 = self.rng.r#gen();
+        let workload = self.params.resolved_workload();
+        let total: f64 = workload.values().sum();
+        if total <= 0.0 {
+            return self.gen_put(id);
+        }
 
-    // ── Write operations ──
+        let mut cumulative = 0.0;
+        for (op_type, weight) in &workload {
+            cumulative += weight / total;
+            if roll < cumulative {
+                return match op_type.as_str() {
+                    "put" => self.gen_put(id),
+                    "get" => self.gen_get(id),
+                    "delete" => self.gen_delete(id),
+                    "delete_range" => self.gen_delete_range(id),
+                    "list" => self.gen_list(id),
+                    "range_scan" => self.gen_range_scan(id),
+                    "cas" => self.gen_cas(id),
+                    "ephemeral_put" => self.gen_ephemeral_put(id),
+                    "indexed_put" => self.gen_indexed_put(id),
+                    "indexed_get" => self.gen_indexed_get(id),
+                    "indexed_list" => self.gen_indexed_list(id),
+                    "indexed_range_scan" => self.gen_indexed_range_scan(id),
+                    "sequence_put" => self.gen_sequence_put(id),
+                    _ => self.gen_put(id),
+                };
+            }
+        }
+        self.gen_put(id)
+    }
 
     fn gen_write_op(&mut self) -> OriginOp {
         let id = self.next_id();

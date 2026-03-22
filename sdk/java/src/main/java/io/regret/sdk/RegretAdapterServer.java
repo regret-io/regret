@@ -21,9 +21,7 @@ public class RegretAdapterServer {
         int port = 9090;
         Server server = ServerBuilder.forPort(port)
                 .addService(new AdapterServiceImpl(adapter))
-                .build()
-                .start();
-
+                .build().start();
         LOG.info("Adapter gRPC server started on port {}", port);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOG.info("Shutting down adapter server");
@@ -33,91 +31,51 @@ public class RegretAdapterServer {
     }
 
     private static class AdapterServiceImpl extends AdapterServiceGrpc.AdapterServiceImplBase {
-
         private final Adapter adapter;
-
-        AdapterServiceImpl(Adapter adapter) {
-            this.adapter = adapter;
-        }
+        AdapterServiceImpl(Adapter adapter) { this.adapter = adapter; }
 
         @Override
-        public StreamObserver<Regret.ExecuteRequest> execute(
-                StreamObserver<Regret.ExecuteResponse> responseObserver) {
+        public void executeBatch(Regret.BatchRequest request,
+                StreamObserver<Regret.BatchResponse> responseObserver) {
+            try {
+                long start = System.currentTimeMillis();
+                LOG.info("executeBatch batchId={} ops={}", request.getBatchId(), request.getOpsCount());
 
-            LOG.info("Execute stream opened");
-            final long streamStartMs = System.currentTimeMillis();
-
-            return new StreamObserver<>() {
-                private final List<CompletableFuture<Void>> pending = new ArrayList<>();
-                private int opCount = 0;
-                private int fenceCount = 0;
-
-                @Override
-                public void onNext(Regret.ExecuteRequest request) {
-                    if (request.hasOp()) {
-                        opCount++;
-                        Regret.Operation protoOp = request.getOp();
-                        Operation op = new Operation(
-                                protoOp.getOpId(),
-                                OpType.fromString(protoOp.getOpType()),
-                                protoOp.getPayload().toByteArray());
-
-                        LOG.trace("op {} {} {}", op.opId(), op.opType(),
-                                op.payload() != null ? new String(op.payload(), java.nio.charset.StandardCharsets.UTF_8) : "");
-
-                        CompletableFuture<Void> future = CompletableFuture
-                                .supplyAsync(() -> adapter.executeOp(op))
-                                .thenAccept(result -> {
-                                    Regret.OpResult.Builder b = Regret.OpResult.newBuilder()
-                                            .setOpId(result.opId())
-                                            .setStatus(result.status());
-                                    if (result.payload() != null) b.setPayload(ByteString.copyFrom(result.payload()));
-                                    if (result.message() != null) b.setMessage(result.message());
-                                    synchronized (responseObserver) {
-                                        responseObserver.onNext(Regret.ExecuteResponse.newBuilder()
-                                                .setResult(b.build()).build());
-                                    }
-                                });
-                        pending.add(future);
-
-                    } else if (request.hasFence()) {
-                        fenceCount++;
-                        long fenceId = request.getFence().getFenceId();
-                        LOG.debug("fence {} — waiting for {} pending ops", fenceId, pending.size());
-                        try {
-                            CompletableFuture.allOf(pending.toArray(new CompletableFuture[0])).join();
-                        } catch (Exception e) {
-                            LOG.error("Error at fence {}", fenceId, e);
-                        }
-                        pending.clear();
-                        synchronized (responseObserver) {
-                            responseObserver.onNext(Regret.ExecuteResponse.newBuilder()
-                                    .setFenceAck(Regret.FenceAck.newBuilder().setFenceId(fenceId).build())
-                                    .build());
-                        }
-                    }
+                // Execute all ops concurrently
+                List<CompletableFuture<OpResult>> futures = new ArrayList<>();
+                for (Regret.Operation protoOp : request.getOpsList()) {
+                    Operation op = new Operation(
+                            protoOp.getOpId(),
+                            OpType.fromString(protoOp.getOpType()),
+                            protoOp.getPayload().toByteArray());
+                    futures.add(CompletableFuture.supplyAsync(() -> adapter.executeOp(op)));
                 }
 
-                @Override
-                public void onError(Throwable t) {
-                    LOG.error("Execute stream error after {} ops, {} fences", opCount, fenceCount, t);
+                // Wait for all
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+                // Build response
+                Regret.BatchResponse.Builder rb = Regret.BatchResponse.newBuilder()
+                        .setBatchId(request.getBatchId());
+                for (var f : futures) {
+                    OpResult result = f.get();
+                    Regret.OpResult.Builder b = Regret.OpResult.newBuilder()
+                            .setOpId(result.opId())
+                            .setStatus(result.status());
+                    if (result.payload() != null) b.setPayload(ByteString.copyFrom(result.payload()));
+                    if (result.message() != null) b.setMessage(result.message());
+                    rb.addResults(b.build());
                 }
 
-                @Override
-                public void onCompleted() {
-                    try {
-                        CompletableFuture.allOf(pending.toArray(new CompletableFuture[0])).join();
-                    } catch (Exception e) {
-                        LOG.error("Error draining pending ops", e);
-                    }
-                    pending.clear();
-                    long durationMs = System.currentTimeMillis() - streamStartMs;
-                    LOG.info("Execute stream completed: {} ops, {} fences, {}ms", opCount, fenceCount, durationMs);
-                    synchronized (responseObserver) {
-                        responseObserver.onCompleted();
-                    }
-                }
-            };
+                long ms = System.currentTimeMillis() - start;
+                LOG.info("executeBatch completed batchId={} ops={} {}ms", request.getBatchId(), request.getOpsCount(), ms);
+
+                responseObserver.onNext(rb.build());
+                responseObserver.onCompleted();
+            } catch (Exception e) {
+                LOG.error("executeBatch failed", e);
+                responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
+            }
         }
 
         @Override
@@ -125,6 +83,7 @@ public class RegretAdapterServer {
                 StreamObserver<Regret.ReadStateResponse> responseObserver) {
             try {
                 List<Record> records = adapter.readState(request.getKeyPrefix());
+                LOG.info("readState prefix={} returned {} records", request.getKeyPrefix(), records.size());
                 Regret.ReadStateResponse.Builder b = Regret.ReadStateResponse.newBuilder();
                 for (Record r : records) {
                     Regret.Record.Builder rb = Regret.Record.newBuilder().setKey(r.getKey());
