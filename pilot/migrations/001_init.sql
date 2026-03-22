@@ -2,8 +2,12 @@ CREATE TABLE IF NOT EXISTS hypotheses (
     id            TEXT PRIMARY KEY,
     name          TEXT UNIQUE NOT NULL,
     generator     TEXT NOT NULL,
-    state_machine TEXT NOT NULL,
+    adapter       TEXT,
+    adapter_addr  TEXT,
+    duration      TEXT,
     tolerance     TEXT,
+    key_space     TEXT NOT NULL DEFAULT '{}',
+    config        TEXT NOT NULL DEFAULT '{}',
     status        TEXT NOT NULL DEFAULT 'idle',
     created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     last_run_at   TEXT

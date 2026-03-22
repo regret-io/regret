@@ -18,7 +18,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/hypothesis/{id}", get(hypothesis::get_one))
         .route("/api/hypothesis/{id}", delete(hypothesis::delete))
         // Run control
-        .route("/api/hypothesis/{id}/run", post(hypothesis::start_run))
+        .route("/api/hypothesis/{id}/run", post(hypothesis::start_run))  // no body needed — config on hypothesis
         .route("/api/hypothesis/{id}/run", delete(hypothesis::stop_run))
         // Observability
         .route("/api/hypothesis/{id}/status", get(hypothesis::status))

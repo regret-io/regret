@@ -1,12 +1,12 @@
 // API client — calls through Next.js proxy at /api/* → pilot
 
-// ---------- Types ----------
-
 export interface Hypothesis {
   id: string;
   name: string;
   generator: string;
-  state_machine: Record<string, unknown>;
+  adapter?: string;
+  adapter_addr?: string;
+  duration?: string;
   tolerance?: Record<string, unknown>;
   status: "idle" | "running" | "passed" | "failed" | "stopped";
   created_at: string;
@@ -64,8 +64,6 @@ export interface Adapter {
   created_at: string;
 }
 
-// ---------- Helpers ----------
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -80,7 +78,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-// ---------- Hypotheses ----------
+// --- Hypotheses ---
 
 export async function listHypotheses(): Promise<Hypothesis[]> {
   const data = await request<{ items: Hypothesis[] }>("/api/hypothesis");
@@ -90,17 +88,14 @@ export async function listHypotheses(): Promise<Hypothesis[]> {
 export async function createHypothesis(body: {
   name: string;
   generator: string;
-  state_machine?: Record<string, unknown>;
+  adapter?: string;
+  adapter_addr?: string;
+  duration?: string;
   tolerance?: Record<string, unknown>;
 }): Promise<Hypothesis> {
   return request<Hypothesis>("/api/hypothesis", {
     method: "POST",
-    body: JSON.stringify({
-      name: body.name,
-      generator: body.generator,
-      state_machine: body.state_machine || { type: body.generator },
-      tolerance: body.tolerance,
-    }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -112,25 +107,10 @@ export async function deleteHypothesis(id: string): Promise<void> {
   return request<void>(`/api/hypothesis/${id}`, { method: "DELETE" });
 }
 
-// ---------- Runs ----------
+// --- Runs (no body — config is on the hypothesis) ---
 
-export async function startRun(
-  id: string,
-  body: {
-    adapter?: string;
-    adapter_addr?: string;
-    execution?: {
-      batch_size?: number;
-      checkpoint_every?: number;
-      fail_fast?: boolean;
-      duration?: string;
-    };
-  }
-): Promise<{ run_id: string; hypothesis_id: string; status: string }> {
-  return request(`/api/hypothesis/${id}/run`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+export async function startRun(id: string): Promise<{ run_id: string }> {
+  return request(`/api/hypothesis/${id}/run`, { method: "POST", body: "{}" });
 }
 
 export async function stopRun(id: string): Promise<void> {
@@ -163,7 +143,7 @@ export async function downloadBundle(id: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-// ---------- Generators ----------
+// --- Generators ---
 
 export async function listGenerators(): Promise<Generator[]> {
   const data = await request<{ items: Generator[] }>("/api/generators");
@@ -176,17 +156,14 @@ export async function createGenerator(body: {
   rate: number;
   workload: Record<string, number>;
 }): Promise<Generator> {
-  return request<Generator>("/api/generators", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return request<Generator>("/api/generators", { method: "POST", body: JSON.stringify(body) });
 }
 
 export async function deleteGenerator(name: string): Promise<void> {
   return request<void>(`/api/generators/${name}`, { method: "DELETE" });
 }
 
-// ---------- Adapters ----------
+// --- Adapters ---
 
 export async function listAdapters(): Promise<Adapter[]> {
   const data = await request<{ items: Adapter[] }>("/api/adapters");
@@ -198,25 +175,9 @@ export async function createAdapter(body: {
   image: string;
   env: Record<string, string>;
 }): Promise<Adapter> {
-  return request<Adapter>("/api/adapters", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return request<Adapter>("/api/adapters", { method: "POST", body: JSON.stringify(body) });
 }
 
 export async function deleteAdapter(id: string): Promise<void> {
   return request<void>(`/api/adapters/${id}`, { method: "DELETE" });
-}
-
-// ---------- Dashboard ----------
-
-export async function getDashboardStats() {
-  const hypotheses = await listHypotheses();
-  return {
-    total: hypotheses.length,
-    running: hypotheses.filter((h) => h.status === "running").length,
-    passed: hypotheses.filter((h) => h.status === "passed").length,
-    failed: hypotheses.filter((h) => h.status === "failed").length,
-    recent: hypotheses.slice(0, 10),
-  };
 }

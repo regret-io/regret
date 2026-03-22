@@ -12,8 +12,12 @@ pub struct Hypothesis {
     pub id: String,
     pub name: String,
     pub generator: String,
-    pub state_machine: String,
+    pub adapter: Option<String>,
+    pub adapter_addr: Option<String>,
+    pub duration: Option<String>,
     pub tolerance: Option<String>,
+    pub key_space: String,
+    pub config: String,
     pub status: String,
     pub created_at: String,
     pub last_run_at: Option<String>,
@@ -91,17 +95,25 @@ impl SqliteStore {
         id: &str,
         name: &str,
         generator: &str,
-        state_machine: &str,
+        adapter: Option<&str>,
+        adapter_addr: Option<&str>,
+        duration: Option<&str>,
         tolerance: Option<&str>,
+        key_space: &str,
+        config: &str,
     ) -> Result<Hypothesis> {
         sqlx::query(
-            "INSERT INTO hypotheses (id, name, generator, state_machine, tolerance) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO hypotheses (id, name, generator, adapter, adapter_addr, duration, tolerance, key_space, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(name)
         .bind(generator)
-        .bind(state_machine)
+        .bind(adapter)
+        .bind(adapter_addr)
+        .bind(duration)
         .bind(tolerance)
+        .bind(key_space)
+        .bind(config)
         .execute(&self.pool)
         .await?;
 

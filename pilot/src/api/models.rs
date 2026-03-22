@@ -8,9 +8,18 @@ use crate::engine::executor::ProgressInfo;
 pub struct CreateHypothesisRequest {
     pub name: String,
     pub generator: String,
-    pub state_machine: serde_json::Value,
+    /// Adapter name. Omit for reference-only mode.
+    pub adapter: Option<String>,
+    /// Override adapter gRPC address (local dev).
+    pub adapter_addr: Option<String>,
+    /// Run duration (e.g. "30s", "5m", "1h"). Omit for forever.
+    pub duration: Option<String>,
+    /// Tolerance config for verification.
     #[serde(default)]
     pub tolerance: Option<serde_json::Value>,
+    /// Key space config override.
+    #[serde(default)]
+    pub key_space: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -18,7 +27,12 @@ pub struct HypothesisResponse {
     pub id: String,
     pub name: String,
     pub generator: String,
-    pub state_machine: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_addr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tolerance: Option<serde_json::Value>,
     pub status: String,
@@ -32,45 +46,7 @@ pub struct HypothesisListResponse {
     pub items: Vec<HypothesisResponse>,
 }
 
-// --- Run Control ---
-
-#[derive(Debug, Deserialize)]
-pub struct StartRunRequest {
-    /// Adapter name to use for this run (must be pre-registered via POST /api/adapters).
-    /// If omitted, runs reference model only (no real system verification).
-    pub adapter: Option<String>,
-    /// Override adapter gRPC address (for local dev when K8s service names aren't resolvable).
-    pub adapter_addr: Option<String>,
-    #[serde(default)]
-    pub execution: ExecutionConfigRequest,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ExecutionConfigRequest {
-    #[serde(default = "default_batch_size")]
-    pub batch_size: usize,
-    #[serde(default = "default_checkpoint_every")]
-    pub checkpoint_every: usize,
-    #[serde(default = "default_fail_fast")]
-    pub fail_fast: bool,
-    /// Run duration (e.g. "30m", "1h", "300s"). Omit to run forever.
-    pub duration: Option<String>,
-}
-
-fn default_batch_size() -> usize { 100 }
-fn default_checkpoint_every() -> usize { 10 }
-fn default_fail_fast() -> bool { true }
-
-impl Default for ExecutionConfigRequest {
-    fn default() -> Self {
-        Self {
-            batch_size: default_batch_size(),
-            checkpoint_every: default_checkpoint_every(),
-            fail_fast: default_fail_fast(),
-            duration: None,
-        }
-    }
-}
+// --- Run Control (now just starts — config is on hypothesis) ---
 
 #[derive(Debug, Serialize)]
 pub struct StartRunResponse {
