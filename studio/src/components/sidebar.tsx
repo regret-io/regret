@@ -8,10 +8,12 @@ import {
   CpuIcon,
   PlugIcon,
   GaugeIcon,
+  PlayIcon,
 } from "lucide-react";
 
 const correctnessLinks = [
-  { href: "/hypotheses", label: "Hypotheses", icon: FlaskConicalIcon },
+  { href: "/templates", label: "Templates", icon: FlaskConicalIcon },
+  { href: "/runs", label: "Runs", icon: PlayIcon },
   { href: "/generators", label: "Generators", icon: CpuIcon },
   { href: "/adapters", label: "Adapters", icon: PlugIcon },
 ];
@@ -26,7 +28,7 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 flex h-screen w-[220px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-900">
       <Link
-        href="/hypotheses"
+        href="/templates"
         className="flex items-center gap-2 px-5 py-5 border-b border-zinc-800"
       >
         <FlaskConicalIcon className="size-5 text-zinc-400" />
