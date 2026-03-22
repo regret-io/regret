@@ -259,7 +259,7 @@ export default function RunsPage() {
                     </Link>
                   </TableCell>
                   <TableCell className="font-mono text-xs text-zinc-400">
-                    {r.run_id.slice(0, 8)}
+                    {r.run_id.slice(-8)}
                   </TableCell>
                   <TableCell>{statusBadge(r)}</TableCell>
                   <TableCell className="font-mono text-zinc-300 text-sm">

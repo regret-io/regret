@@ -447,7 +447,7 @@ export default function TemplateDetailPage({
                 {results.map((r) => (
                   <TableRow key={r.id} className="border-zinc-800">
                     <TableCell className="font-mono text-xs text-zinc-300">
-                      {r.run_id.slice(0, 8)}
+                      {r.run_id.slice(-8)}
                     </TableCell>
                     <TableCell>{stopReasonBadge(r.stop_reason)}</TableCell>
                     <TableCell className="font-mono text-zinc-300">
