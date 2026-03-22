@@ -205,23 +205,28 @@ impl Executor {
                 self.emit_event(Event::batch_started(&self.run_id, &batch_id, batch_counter, batch.len()));
                 let start = Instant::now();
 
-                let results = if let Some(client) = &self.adapter_client {
-                    match client.execute_batch(&batch_id, batch).await {
+                let failures = if let Some(client) = &self.adapter_client {
+                    // Real adapter — execute and verify
+                    let results = match client.execute_batch(&batch_id, batch).await {
                         Ok(r) => r,
                         Err(e) => {
                             self.emit_event(Event::batch_failed(&self.run_id, &batch_id, 1, &e.to_string()));
                             return Ok(StopReason::Error(e.to_string()));
                         }
-                    }
+                    };
+                    let response = AdapterBatchResponse { batch_id: batch_id.clone(), results };
+                    self.reference.process_response(batch, &response, &self.tolerance)
                 } else {
-                    self.build_mock_results(batch)
+                    // No adapter — apply writes to reference only, skip verification
+                    let mock = self.build_mock_results(batch);
+                    let response = AdapterBatchResponse { batch_id: batch_id.clone(), results: mock };
+                    // Only apply writes, don't verify reads (no real adapter to compare against)
+                    let _ = self.reference.process_response(batch, &response, &self.tolerance);
+                    vec![] // no failures in reference-only mode
                 };
 
                 let duration_ms = start.elapsed().as_millis() as u64;
                 self.emit_event(Event::batch_completed(&self.run_id, &batch_id, duration_ms));
-
-                let response = AdapterBatchResponse { batch_id: batch_id.clone(), results };
-                let failures = self.reference.process_response(batch, &response, &self.tolerance);
                 if !failures.is_empty() {
                     let mut p = self.progress.write().await;
                     p.failed_response_ops += failures.len();
