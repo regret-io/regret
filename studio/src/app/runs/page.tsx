@@ -240,15 +240,15 @@ export default function RunsPage() {
           <Table>
             <TableHeader>
               <TableRow className="border-zinc-800 hover:bg-transparent">
-                <TableHead className="text-zinc-400">Template</TableHead>
-                <TableHead className="text-zinc-400">Run ID</TableHead>
-                <TableHead className="text-zinc-400">Status</TableHead>
-                <TableHead className="text-zinc-400">Ops</TableHead>
-                <TableHead className="text-zinc-400">Ops/s</TableHead>
-                <TableHead className="text-zinc-400">Elapsed</TableHead>
-                <TableHead className="text-zinc-400">Checkpoints</TableHead>
-                <TableHead className="text-zinc-400">Failures</TableHead>
-                <TableHead className="text-zinc-400">Started</TableHead>
+                <TableHead className="text-zinc-400 w-[160px]">Template</TableHead>
+                <TableHead className="text-zinc-400 w-[80px]">Run ID</TableHead>
+                <TableHead className="text-zinc-400 w-[90px]">Status</TableHead>
+                <TableHead className="text-zinc-400 w-[90px] text-right">Ops</TableHead>
+                <TableHead className="text-zinc-400 w-[70px] text-right">Ops/s</TableHead>
+                <TableHead className="text-zinc-400 w-[80px] text-right">Elapsed</TableHead>
+                <TableHead className="text-zinc-400 w-[100px] text-right">Checkpoints</TableHead>
+                <TableHead className="text-zinc-400 w-[70px] text-right">Failures</TableHead>
+                <TableHead className="text-zinc-400 w-[120px]">Started</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -279,31 +279,31 @@ export default function RunsPage() {
                     {r.run_id.slice(-8)}
                   </TableCell>
                   <TableCell>{statusBadge(r)}</TableCell>
-                  <TableCell className="font-mono text-zinc-300 text-sm">
+                  <TableCell className="font-mono text-zinc-300 text-sm text-right">
                     {r.is_live && r.progress
                       ? r.progress.completed_ops.toLocaleString()
                       : r.total_response_ops.toLocaleString()}
                   </TableCell>
-                  <TableCell className="font-mono text-sm">
+                  <TableCell className="font-mono text-sm text-right">
                     {r.is_live && r.progress ? (
                       <span className="text-blue-400">{Math.round(r.progress.ops_per_sec)}</span>
                     ) : (
                       <span className="text-zinc-500">-</span>
                     )}
                   </TableCell>
-                  <TableCell className="font-mono text-sm">
+                  <TableCell className="font-mono text-sm text-right">
                     {r.is_live && r.progress ? (
                       <span className="text-zinc-300">{formatElapsed(r.progress.elapsed_secs)}</span>
                     ) : (
                       <span className="text-zinc-500">-</span>
                     )}
                   </TableCell>
-                  <TableCell className="font-mono text-zinc-300 text-sm">
+                  <TableCell className="font-mono text-zinc-300 text-sm text-right">
                     {r.is_live && r.progress
                       ? `${r.progress.passed_checkpoints}/${r.progress.total_checkpoints}`
                       : `${r.passed_checkpoints}/${r.total_checkpoints}`}
                   </TableCell>
-                  <TableCell className="font-mono text-zinc-300 text-sm">
+                  <TableCell className="font-mono text-zinc-300 text-sm text-right">
                     {r.is_live && r.progress
                       ? r.progress.failed_response_ops
                       : r.failed_response_ops}
