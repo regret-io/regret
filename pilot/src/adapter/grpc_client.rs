@@ -126,7 +126,7 @@ fn serialize_op(kind: &OpKind) -> (String, Vec<u8>) {
         OpKind::IndexedList { index_name, start, end } => ("indexed_list".into(), serde_json::to_vec(&serde_json::json!({"index_name": index_name, "start": start, "end": end})).unwrap()),
         OpKind::IndexedRangeScan { index_name, start, end } => ("indexed_range_scan".into(), serde_json::to_vec(&serde_json::json!({"index_name": index_name, "start": start, "end": end})).unwrap()),
         OpKind::SequencePut { prefix, value, delta } => ("sequence_put".into(), serde_json::to_vec(&serde_json::json!({"prefix": prefix, "value": value, "delta": delta})).unwrap()),
-        OpKind::WatchStart { prefix } => ("watch_start".into(), serde_json::to_vec(&serde_json::json!({"prefix": prefix})).unwrap()),
+        OpKind::WatchStart { prefix } => ("watch_start".into(), serde_json::to_vec(&serde_json::json!({"key": prefix})).unwrap()),
         OpKind::SessionRestart => ("session_restart".into(), vec![]),
         OpKind::GetNotifications => ("get_notifications".into(), vec![]),
         OpKind::Fence => ("fence".into(), vec![]),

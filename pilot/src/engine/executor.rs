@@ -166,6 +166,27 @@ impl Executor {
             }
         }
 
+        // Start watching notifications (precondition for ephemeral/notification generators)
+        let workload = self.generate_params.resolved_workload();
+        let needs_watch = workload.contains_key("get_notifications")
+            || workload.contains_key("session_restart");
+        if needs_watch {
+            if let Some(client) = &self.adapter_client {
+                let watch_op = crate::reference::Operation {
+                    id: "precondition-watch".to_string(),
+                    kind: crate::reference::OpKind::WatchStart { prefix: prefix.clone() },
+                };
+                match client.execute_batch("precondition", &[watch_op]).await {
+                    Ok(results) => {
+                        for r in &results {
+                            info!(op_id = %r.op_id, status = %r.status, message = ?r.message, "watch_start result");
+                        }
+                    }
+                    Err(e) => { warn!(error = %e, "watch_start precondition failed"); }
+                }
+            }
+        }
+
         // Update key prefix to include run_id, then create generator
         self.generate_params.key_space.prefix = format!("/ref/{}/{}/", self.hypothesis_id, self.run_id);
         let mut generator = crate::generator::kv::BasicKvGenerator::new(&self.generate_params);
@@ -578,7 +599,7 @@ fn parse_origin_op(json: &serde_json::Value) -> Option<Operation> {
         "indexed_list" => OpKind::IndexedList { index_name: json.get("index_name")?.as_str()?.to_string(), start: json.get("start")?.as_str()?.to_string(), end: json.get("end")?.as_str()?.to_string() },
         "indexed_range_scan" => OpKind::IndexedRangeScan { index_name: json.get("index_name")?.as_str()?.to_string(), start: json.get("start")?.as_str()?.to_string(), end: json.get("end")?.as_str()?.to_string() },
         "sequence_put" => OpKind::SequencePut { prefix: json.get("prefix")?.as_str()?.to_string(), value: json.get("value")?.as_str()?.to_string(), delta: json.get("delta")?.as_u64().unwrap_or(1) },
-        "watch_start" => OpKind::WatchStart { prefix: json.get("prefix")?.as_str()?.to_string() },
+        "watch_start" => OpKind::WatchStart { prefix: json.get("key")?.as_str()?.to_string() },
         "session_restart" => OpKind::SessionRestart,
         "get_notifications" => OpKind::GetNotifications,
         _ => return None,
