@@ -226,12 +226,14 @@ impl Executor {
                         .map(|(op, res)| {
                             let is_failed = failed_ops.contains(op.id.as_str());
                             let failure = failures.iter().find(|f| f.op_id == op.id);
+                            // Only include full response (records, keys) when verification failed
+                            let resp = if is_failed { op_response(res) } else { op_response_brief(res) };
                             super::events::OpRecord {
                                 op_id: op.id.clone(),
                                 op_type: op_type_str(&op.kind),
                                 payload: op_payload(&op.kind),
                                 status: res.status.clone(),
-                                response: op_response(res),
+                                response: resp,
                                 expected: failure.map(|f| serde_json::json!(f.expected)),
                                 actual: failure.map(|f| serde_json::json!(f.actual)),
                                 verified: Some(!is_failed),
@@ -500,6 +502,24 @@ fn op_response(res: &AdapterOpResult) -> serde_json::Value {
     }
     if let Some(keys) = &res.keys {
         m.insert("keys".into(), serde_json::json!(keys));
+    }
+    if let Some(c) = res.deleted_count {
+        m.insert("deleted_count".into(), serde_json::json!(c));
+    }
+    if let Some(msg) = &res.message {
+        m.insert("message".into(), serde_json::json!(msg));
+    }
+    serde_json::Value::Object(m)
+}
+
+/// Brief response — only scalar fields (value, version_id), skips records/keys arrays.
+fn op_response_brief(res: &AdapterOpResult) -> serde_json::Value {
+    let mut m = serde_json::Map::new();
+    if let Some(v) = &res.value {
+        m.insert("value".into(), serde_json::json!(v));
+    }
+    if let Some(v) = res.version_id {
+        m.insert("version_id".into(), serde_json::json!(v));
     }
     if let Some(c) = res.deleted_count {
         m.insert("deleted_count".into(), serde_json::json!(c));
