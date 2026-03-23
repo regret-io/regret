@@ -96,7 +96,7 @@ impl HypothesisManager {
         let adapter_client: Option<Box<dyn AdapterClient>> = if let Some(adapter_def) = &adapter {
             // Use override address if provided, otherwise derive from adapter name
             let addr = adapter_addr_override
-                .unwrap_or_else(|| format!("{}:9090", adapter_def.name));
+                .unwrap_or_else(|| format!("http://adapter-{}:9090", adapter_def.name));
 
             info!(adapter = %adapter_def.name, %addr, "connecting to adapter");
             match crate::adapter::grpc_client::GrpcAdapterClient::connect(&addr).await {
