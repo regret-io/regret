@@ -21,12 +21,10 @@
 #       secrets:
 #         regret_api: ${{ secrets.REGRET_API_URL }}
 #         regret_password: ${{ secrets.REGRET_PASSWORD }}
-#         adapter_addr: ${{ secrets.REGRET_ADAPTER_ADDR }}
 #
 # Required secrets in the Oxia repo:
 #   REGRET_API_URL     - e.g. http://a6e268...elb.amazonaws.com:8080
 #   REGRET_PASSWORD    - auth password for write operations
-#   REGRET_ADAPTER_ADDR - e.g. http://oxia-adapter.regret-system.svc.cluster.local:9090
 
 name: Regret Candidate Release Test
 
@@ -64,9 +62,6 @@ on:
       regret_password:
         required: true
         description: 'Regret auth password'
-      adapter_addr:
-        required: true
-        description: 'Oxia adapter gRPC address inside the cluster'
 
 jobs:
   candidate-test:
@@ -103,7 +98,6 @@ jobs:
                 \"name\": \"ci-${gen}-${GITHUB_RUN_ID}\",
                 \"generator\": \"${gen}\",
                 \"adapter\": \"oxia\",
-                \"adapter_addr\": \"${{ secrets.adapter_addr }}\",
                 \"duration\": \"${{ inputs.duration }}\",
                 \"checkpoint_every\": \"${{ inputs.checkpoint_every }}\",
                 \"tolerance\": {\"structural\":[{\"field\":\"version_id\",\"ignore\":true}]}
