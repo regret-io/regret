@@ -101,38 +101,33 @@ impl RocksStore {
     /// Floor: largest key ≤ target within prefix.
     pub fn ref_floor(&self, prefix: &str, target: &str) -> Result<Option<(String, RefEntry)>> {
         let db = self.db.lock().unwrap();
-
-        // Seek to target
+        // Seek forward to find exact match or first key > target
+        // Then go back one step if no exact match
         let iter = db.iterator(IteratorMode::From(target.as_bytes(), Direction::Forward));
-        // Check exact match first
         for item in iter {
             let (key, value) = item?;
             let key_str = String::from_utf8_lossy(&key).to_string();
-            if !key_str.starts_with(prefix) {
-                break;
-            }
-            if key_str == target {
+            if key_str == target && key_str.starts_with(prefix) {
+                // Exact match
                 if let Ok(entry) = serde_json::from_slice::<RefEntry>(&value) {
                     return Ok(Some((key_str, entry)));
                 }
             }
-            break;
+            break; // No exact match, need to go backwards
         }
-
-        // No exact match — seek backwards
+        // Seek backwards from target
         let iter = db.iterator(IteratorMode::From(target.as_bytes(), Direction::Reverse));
         for item in iter {
             let (key, value) = item?;
             let key_str = String::from_utf8_lossy(&key).to_string();
             if !key_str.starts_with(prefix) {
-                break;
+                return Ok(None);
             }
             if key_str.as_str() <= target {
                 if let Ok(entry) = serde_json::from_slice::<RefEntry>(&value) {
                     return Ok(Some((key_str, entry)));
                 }
             }
-            break;
         }
         Ok(None)
     }
@@ -145,12 +140,12 @@ impl RocksStore {
             let (key, value) = item?;
             let key_str = String::from_utf8_lossy(&key).to_string();
             if !key_str.starts_with(prefix) {
-                break;
+                return Ok(None);
             }
+            // First key >= target (IteratorMode::From guarantees this)
             if let Ok(entry) = serde_json::from_slice::<RefEntry>(&value) {
                 return Ok(Some((key_str, entry)));
             }
-            break;
         }
         Ok(None)
     }
@@ -158,20 +153,20 @@ impl RocksStore {
     /// Lower: largest key < target within prefix.
     pub fn ref_lower(&self, prefix: &str, target: &str) -> Result<Option<(String, RefEntry)>> {
         let db = self.db.lock().unwrap();
+        // Reverse from target — first key might be == target, skip it
         let iter = db.iterator(IteratorMode::From(target.as_bytes(), Direction::Reverse));
         for item in iter {
             let (key, value) = item?;
             let key_str = String::from_utf8_lossy(&key).to_string();
             if !key_str.starts_with(prefix) {
-                break;
+                return Ok(None);
             }
             if key_str.as_str() < target {
                 if let Ok(entry) = serde_json::from_slice::<RefEntry>(&value) {
                     return Ok(Some((key_str, entry)));
                 }
             }
-            // Skip exact match, keep going
-            continue;
+            // key == target, skip and continue backwards
         }
         Ok(None)
     }
@@ -184,15 +179,14 @@ impl RocksStore {
             let (key, value) = item?;
             let key_str = String::from_utf8_lossy(&key).to_string();
             if !key_str.starts_with(prefix) {
-                break;
+                return Ok(None);
             }
             if key_str.as_str() > target {
                 if let Ok(entry) = serde_json::from_slice::<RefEntry>(&value) {
                     return Ok(Some((key_str, entry)));
                 }
             }
-            // Skip exact match, continue to next
-            continue;
+            // key == target, skip and continue forward
         }
         Ok(None)
     }

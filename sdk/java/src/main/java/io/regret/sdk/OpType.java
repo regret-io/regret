@@ -3,6 +3,10 @@ package io.regret.sdk;
 public enum OpType {
     PUT("put"),
     GET("get"),
+    GET_FLOOR("get_floor"),
+    GET_CEILING("get_ceiling"),
+    GET_LOWER("get_lower"),
+    GET_HIGHER("get_higher"),
     DELETE("delete"),
     DELETE_RANGE("delete_range"),
     LIST("list"),

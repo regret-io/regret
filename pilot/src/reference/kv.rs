@@ -159,18 +159,19 @@ impl BasicKvReference {
                 None
             }
             None => {
-                // Should return not_found
-                if parsed_status != Some(&OpStatus::NotFound) && parsed_status != Some(&OpStatus::Ok) {
-                    // Some adapters return Ok with empty value for not_found on comparison gets
-                    return None;
-                }
-                if parsed_status == Some(&OpStatus::Ok) && result.value.is_some() {
-                    return Some(SafetyViolation {
-                        op_id: op.id.clone(),
-                        op: format!("get_{}", comparison_str(comparison)),
-                        expected: "not_found".to_string(),
-                        actual: format!("ok value={}", result.value.as_deref().unwrap_or("")),
-                    });
+                // Reference found no matching key within our prefix.
+                // For comparison gets (floor/ceiling/lower/higher), the adapter may find
+                // a key outside our prefix — this is valid global behavior, not a violation.
+                // Only flag violations for EQUAL gets where not_found is definitive.
+                if *comparison == GetComparison::Equal {
+                    if parsed_status == Some(&OpStatus::Ok) && result.value.is_some() {
+                        return Some(SafetyViolation {
+                            op_id: op.id.clone(),
+                            op: "get_equal".to_string(),
+                            expected: "not_found".to_string(),
+                            actual: format!("ok value={}", result.value.as_deref().unwrap_or("")),
+                        });
+                    }
                 }
                 None
             }
