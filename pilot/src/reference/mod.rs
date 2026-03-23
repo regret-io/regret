@@ -1,7 +1,6 @@
 pub mod kv;
-pub mod streaming;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
@@ -94,6 +93,16 @@ pub struct AdapterOpResult {
     pub message: Option<String>,
 }
 
+/// Get comparison type.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GetComparison {
+    Equal,
+    Floor,
+    Ceiling,
+    Lower,
+    Higher,
+}
+
 /// Parsed operation.
 #[derive(Debug, Clone)]
 pub struct Operation {
@@ -105,7 +114,7 @@ pub struct Operation {
 pub enum OpKind {
     // Basic KV
     Put { key: String, value: String },
-    Get { key: String },
+    Get { key: String, comparison: GetComparison },
     Delete { key: String },
     DeleteRange { start: String, end: String },
     List { start: String, end: String },
@@ -156,11 +165,14 @@ pub trait ReferenceModel: Send + Sync {
         tolerance: &Option<Tolerance>,
     ) -> Vec<CheckpointFailure>;
 
-    /// Keys touched since last clear.
-    fn touched_keys(&self) -> &HashSet<String>;
+    /// Get all reference state as a map (for checkpoint comparison).
+    fn snapshot_all(&self) -> HashMap<String, Option<RecordState>>;
 
-    /// Snapshot reference state for given keys.
-    fn snapshot(&self, keys: &HashSet<String>) -> HashMap<String, Option<RecordState>>;
+    /// The key prefix for this run (used for adapter cleanup/readState).
+    fn key_prefix(&self) -> String;
+
+    /// Set the run ID (called before each run).
+    fn set_run_id(&mut self, run_id: &str);
 
     /// Clear all state (start of each run).
     fn clear(&mut self);
@@ -172,9 +184,5 @@ pub fn create_reference(
     rocks: RocksStore,
     hypothesis_id: String,
 ) -> Box<dyn ReferenceModel> {
-    // All KV-family generators use the same reference model
-    match generator_name {
-        "basic-streaming" => Box::new(streaming::BasicStreamingReference::new()),
-        _ => Box::new(kv::BasicKvReference::new(rocks, hypothesis_id)),
-    }
+    Box::new(kv::BasicKvReference::new(rocks, hypothesis_id))
 }

@@ -8,11 +8,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::reference::{
-    AdapterBatchResponse, AdapterOpResult, OpKind, OpStatus, Operation, RecordState,
-    ReferenceModel, Tolerance,
+    AdapterBatchResponse, AdapterOpResult, GetComparison, OpKind, OpStatus, Operation,
+    RecordState, ReferenceModel, Tolerance,
 };
 use crate::storage::files::FileStore;
-use crate::storage::rocks::RocksStore;
 use crate::storage::sqlite::{HypothesisResult, SqliteStore};
 use crate::types::{HypothesisStatus, OpType};
 
@@ -101,7 +100,6 @@ pub struct Executor {
     pub reference: Box<dyn ReferenceModel>,
     pub cancel: CancellationToken,
     pub progress: Arc<RwLock<ProgressInfo>>,
-    pub rocks: RocksStore,
     pub files: FileStore,
     pub sqlite: SqliteStore,
     pub adapter_client: Option<Box<dyn AdapterClient>>,
@@ -155,12 +153,12 @@ impl Executor {
     async fn run_inner(&mut self) -> Result<StopReason> {
         info!(hypothesis_id = %self.hypothesis_id, run_id = %self.run_id, "starting execution");
         self.emit_event(Event::run_started(&self.run_id, &self.hypothesis_id));
+        self.reference.set_run_id(&self.run_id);
         self.reference.clear();
-        self.rocks.clear_state(&self.hypothesis_id).context("failed to clear state")?;
 
         // Clean adapter data from previous run
+        let prefix = self.reference.key_prefix();
         if let Some(client) = &self.adapter_client {
-            let prefix = format!("/{}/", self.hypothesis_id);
             if let Err(e) = client.cleanup(&prefix).await {
                 warn!(error = %e, "failed to cleanup adapter, continuing anyway");
             }
@@ -384,8 +382,7 @@ impl Executor {
 
     async fn run_checkpoint(&mut self, num: usize) -> Result<StopReason> {
         let id = format!("ckpt-{num:04}");
-        let prefix = format!("/{}/", self.hypothesis_id);
-        let count = self.reference.touched_keys().len();
+        let prefix = self.reference.key_prefix();
 
         { self.progress.write().await.total_checkpoints += 1; }
 
@@ -393,12 +390,12 @@ impl Executor {
         let actual = if let Some(client) = &self.adapter_client {
             client.read_state(&prefix).await?
         } else {
-            self.reference.snapshot(self.reference.touched_keys())
+            self.reference.snapshot_all()
         };
 
         let failures = self.reference.verify_checkpoint(&actual, &self.tolerance);
         let duration_ms = start.elapsed().as_millis() as u64;
-        let expect = self.reference.snapshot(self.reference.touched_keys());
+        let expect = self.reference.snapshot_all();
 
         let passed = failures.is_empty();
         self.emit_event(Event::checkpoint(&self.run_id, &id, duration_ms, &expect, &actual, &failures));
@@ -453,7 +450,13 @@ impl Executor {
 
 fn op_type_str(kind: &OpKind) -> String {
     match kind {
-        OpKind::Put { .. } => "put", OpKind::Get { .. } => "get", OpKind::Delete { .. } => "delete",
+        OpKind::Put { .. } => "put",
+        OpKind::Get { comparison: GetComparison::Equal, .. } => "get",
+        OpKind::Get { comparison: GetComparison::Floor, .. } => "get_floor",
+        OpKind::Get { comparison: GetComparison::Ceiling, .. } => "get_ceiling",
+        OpKind::Get { comparison: GetComparison::Lower, .. } => "get_lower",
+        OpKind::Get { comparison: GetComparison::Higher, .. } => "get_higher",
+        OpKind::Delete { .. } => "delete",
         OpKind::DeleteRange { .. } => "delete_range", OpKind::List { .. } => "list",
         OpKind::RangeScan { .. } => "range_scan", OpKind::Cas { .. } => "cas",
         OpKind::EphemeralPut { .. } => "ephemeral_put", OpKind::IndexedPut { .. } => "indexed_put",
@@ -466,7 +469,7 @@ fn op_type_str(kind: &OpKind) -> String {
 fn op_payload(kind: &OpKind) -> serde_json::Value {
     match kind {
         OpKind::Put { key, value } => serde_json::json!({"key": key, "value": value}),
-        OpKind::Get { key } => serde_json::json!({"key": key}),
+        OpKind::Get { key, .. } => serde_json::json!({"key": key}),
         OpKind::Delete { key } => serde_json::json!({"key": key}),
         OpKind::DeleteRange { start, end } => serde_json::json!({"start": start, "end": end}),
         OpKind::List { start, end } => serde_json::json!({"start": start, "end": end}),
@@ -485,7 +488,7 @@ fn op_payload(kind: &OpKind) -> serde_json::Value {
 /// Extract the primary key from an operation (for conflict detection).
 fn op_key(kind: &OpKind) -> Option<String> {
     match kind {
-        OpKind::Put { key, .. } | OpKind::Get { key } | OpKind::Delete { key }
+        OpKind::Put { key, .. } | OpKind::Get { key, .. } | OpKind::Delete { key }
         | OpKind::Cas { key, .. } | OpKind::EphemeralPut { key, .. }
         | OpKind::IndexedPut { key, .. } => Some(key.clone()),
         OpKind::SequencePut { prefix, .. } => Some(prefix.clone()),
@@ -544,7 +547,11 @@ fn parse_origin_op(json: &serde_json::Value) -> Option<Operation> {
 
     let kind = match op {
         "put" => OpKind::Put { key: json.get("key")?.as_str()?.to_string(), value: json.get("value")?.as_str()?.to_string() },
-        "get" => OpKind::Get { key: json.get("key")?.as_str()?.to_string() },
+        "get" => OpKind::Get { key: json.get("key")?.as_str()?.to_string(), comparison: GetComparison::Equal },
+        "get_floor" => OpKind::Get { key: json.get("key")?.as_str()?.to_string(), comparison: GetComparison::Floor },
+        "get_ceiling" => OpKind::Get { key: json.get("key")?.as_str()?.to_string(), comparison: GetComparison::Ceiling },
+        "get_lower" => OpKind::Get { key: json.get("key")?.as_str()?.to_string(), comparison: GetComparison::Lower },
+        "get_higher" => OpKind::Get { key: json.get("key")?.as_str()?.to_string(), comparison: GetComparison::Higher },
         "delete" => OpKind::Delete { key: json.get("key")?.as_str()?.to_string() },
         "delete_range" => OpKind::DeleteRange { start: json.get("start")?.as_str()?.to_string(), end: json.get("end")?.as_str()?.to_string() },
         "list" => OpKind::List { start: json.get("start")?.as_str()?.to_string(), end: json.get("end")?.as_str()?.to_string() },

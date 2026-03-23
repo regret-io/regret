@@ -43,7 +43,6 @@ pub async fn create(
         tolerance_json.as_deref(), &req.checkpoint_every, &key_space_json, "{}",
     ).await?;
 
-    state.rocks.create_cf(&id)?;
     state.files.create_hypothesis_dir(&id)?;
     state.managers.create_from_hypothesis(&id, &req.generator, tolerance_json).await;
 
@@ -91,7 +90,6 @@ pub async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Re
     }
     state.managers.remove(&id).await;
     state.sqlite.delete_hypothesis(&id).await?;
-    let _ = state.rocks.drop_cf(&id);
     let _ = state.files.delete_hypothesis_dir(&id);
 
     // Cleanup adapter data in background (don't block the response)

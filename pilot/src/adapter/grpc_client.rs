@@ -103,7 +103,16 @@ fn parse_op_result(r: proto::OpResult) -> AdapterOpResult {
 fn serialize_op(kind: &OpKind) -> (String, Vec<u8>) {
     match kind {
         OpKind::Put { key, value } => ("put".into(), serde_json::to_vec(&serde_json::json!({"key": key, "value": value})).unwrap()),
-        OpKind::Get { key } => ("get".into(), serde_json::to_vec(&serde_json::json!({"key": key})).unwrap()),
+        OpKind::Get { key, comparison } => {
+            let op_type = match comparison {
+                crate::reference::GetComparison::Equal => "get",
+                crate::reference::GetComparison::Floor => "get_floor",
+                crate::reference::GetComparison::Ceiling => "get_ceiling",
+                crate::reference::GetComparison::Lower => "get_lower",
+                crate::reference::GetComparison::Higher => "get_higher",
+            };
+            (op_type.into(), serde_json::to_vec(&serde_json::json!({"key": key})).unwrap())
+        }
         OpKind::Delete { key } => ("delete".into(), serde_json::to_vec(&serde_json::json!({"key": key})).unwrap()),
         OpKind::DeleteRange { start, end } => ("delete_range".into(), serde_json::to_vec(&serde_json::json!({"start": start, "end": end})).unwrap()),
         OpKind::List { start, end } => ("list".into(), serde_json::to_vec(&serde_json::json!({"start": start, "end": end})).unwrap()),
