@@ -164,7 +164,8 @@ impl Executor {
             }
         }
 
-        // Create generator for on-the-fly op production
+        // Update key prefix to include run_id, then create generator
+        self.generate_params.key_space.prefix = format!("/ref/{}/{}/", self.hypothesis_id, self.run_id);
         let mut generator = crate::generator::kv::BasicKvGenerator::new(&self.generate_params);
         let run_start = Instant::now();
         let duration_secs = self.config.duration_secs.unwrap_or(0);

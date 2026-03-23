@@ -60,8 +60,16 @@ pub struct GeneratorInfo {
 
 fn basic_kv() -> HashMap<String, f64> {
     HashMap::from([
-        ("put".into(), 0.30), ("get".into(), 0.35), ("delete".into(), 0.10),
-        ("delete_range".into(), 0.03), ("range_scan".into(), 0.12), ("list".into(), 0.10),
+        ("put".into(), 0.20),
+        ("get".into(), 0.15),
+        ("get_floor".into(), 0.05),
+        ("get_ceiling".into(), 0.05),
+        ("get_lower".into(), 0.05),
+        ("get_higher".into(), 0.05),
+        ("delete".into(), 0.08),
+        ("delete_range".into(), 0.02),
+        ("range_scan".into(), 0.15),
+        ("list".into(), 0.10),
     ])
 }
 

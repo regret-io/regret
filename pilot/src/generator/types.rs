@@ -141,6 +141,22 @@ impl OriginOp {
         OriginOp::Operation(OperationOp { id, op: "get".to_string(), fields: OpFields::Get { key } })
     }
 
+    pub fn get_floor(id: String, key: String) -> Self {
+        OriginOp::Operation(OperationOp { id, op: "get_floor".to_string(), fields: OpFields::Get { key } })
+    }
+
+    pub fn get_ceiling(id: String, key: String) -> Self {
+        OriginOp::Operation(OperationOp { id, op: "get_ceiling".to_string(), fields: OpFields::Get { key } })
+    }
+
+    pub fn get_lower(id: String, key: String) -> Self {
+        OriginOp::Operation(OperationOp { id, op: "get_lower".to_string(), fields: OpFields::Get { key } })
+    }
+
+    pub fn get_higher(id: String, key: String) -> Self {
+        OriginOp::Operation(OperationOp { id, op: "get_higher".to_string(), fields: OpFields::Get { key } })
+    }
+
     pub fn delete(id: String, key: String) -> Self {
         OriginOp::Operation(OperationOp { id, op: "delete".to_string(), fields: OpFields::Delete { key } })
     }
