@@ -5,7 +5,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::reference::{
     AdapterBatchResponse, AdapterOpResult, OpKind, OpStatus, Operation, RecordState,
@@ -157,6 +157,14 @@ impl Executor {
         self.emit_event(Event::run_started(&self.run_id, &self.hypothesis_id));
         self.reference.clear();
         self.rocks.clear_state(&self.hypothesis_id).context("failed to clear state")?;
+
+        // Clean adapter data from previous run
+        if let Some(client) = &self.adapter_client {
+            let prefix = format!("/{}/", self.hypothesis_id);
+            if let Err(e) = client.cleanup(&prefix).await {
+                warn!(error = %e, "failed to cleanup adapter, continuing anyway");
+            }
+        }
 
         // Create generator for on-the-fly op production
         let mut generator = crate::generator::kv::BasicKvGenerator::new(&self.generate_params);

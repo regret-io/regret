@@ -138,6 +138,11 @@ async fn main() -> Result<()> {
 
         if let Some(mgr_arc) = managers.get(&h.id).await {
             let mut mgr = mgr_arc.lock().await;
+            // Restore previous run ID if available
+            if let Ok(Some(last_result)) = sqlite.get_latest_result(&h.id).await {
+                mgr.set_resume_run_id(last_result.run_id.clone());
+                info!(id = %h.id, run_id = %last_result.run_id, "restoring run ID");
+            }
             match mgr.start_run(exec_config, gen_params, adapter, h.adapter_addr.clone()).await {
                 Ok((run_id, _)) => info!(id = %h.id, run_id = %run_id, "hypothesis resumed"),
                 Err(e) => warn!(id = %h.id, error = %e, "failed to resume hypothesis"),

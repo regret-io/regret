@@ -21,6 +21,8 @@ pub struct HypothesisManager {
 
     reference: Option<Box<dyn ReferenceModel>>,
     run_state: Option<ActiveRun>,
+    /// If set, the next start_run will use this run ID instead of generating a new one.
+    resume_run_id: Option<String>,
 
     shared: SharedServices,
 }
@@ -50,6 +52,7 @@ impl HypothesisManager {
             tolerance,
             reference: Some(reference),
             run_state: None,
+            resume_run_id: None,
             shared,
         }
     }
@@ -75,7 +78,8 @@ impl HypothesisManager {
             .take()
             .ok_or_else(|| anyhow::anyhow!("reference model not available"))?;
 
-        let run_id = format!("run-{}", uuid::Uuid::now_v7());
+        let run_id = self.resume_run_id.take()
+            .unwrap_or_else(|| format!("run-{}", uuid::Uuid::now_v7()));
         let cancel = CancellationToken::new();
         let progress = Arc::new(RwLock::new(ProgressInfo::default()));
 
@@ -185,6 +189,11 @@ impl HypothesisManager {
                 }
             }
         }
+    }
+
+    /// Set a run ID to resume on the next start_run call.
+    pub fn set_resume_run_id(&mut self, run_id: String) {
+        self.resume_run_id = Some(run_id);
     }
 
     pub fn run_id(&self) -> Option<&str> {
