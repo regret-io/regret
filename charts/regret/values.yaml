@@ -1,5 +1,5 @@
 image:
-  repository: regret/pilot
+  repository: regretio/pilot
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -32,7 +32,7 @@ pilotGrpcAddr: ""
 # Studio (Next.js UI)
 studio:
   image:
-    repository: regret/studio
+    repository: regretio/studio
     tag: latest
     pullPolicy: IfNotPresent
   service:

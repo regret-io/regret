@@ -53,7 +53,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: BUILD_MODE=${{ inputs.build_mode || 'debug' }}
-          tags: mattison/regret-pilot:latest
+          tags: regretio/pilot:latest
           cache-from: type=gha,scope=pilot
           cache-to: type=gha,scope=pilot,mode=max
 
@@ -78,7 +78,7 @@ jobs:
           context: studio
           platforms: linux/amd64
           push: true
-          tags: mattison/regret-studio:latest
+          tags: regretio/studio:latest
           cache-from: type=gha,scope=studio
           cache-to: type=gha,scope=studio,mode=max
 
@@ -104,6 +104,6 @@ jobs:
           file: adapters/oxia-java/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: mattison/regret-oxia-adapter:latest
+          tags: regretio/adapter-oxia:latest
           cache-from: type=gha,scope=adapter
           cache-to: type=gha,scope=adapter,mode=max
