@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -26,8 +27,17 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Set version
+        run: |
+          sed -i "s/version = .*/version = \"${{ inputs.version }}\"/" build.gradle.kts
+
       - name: Build SDK
         run: ./gradlew :sdk:java:build
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew :sdk:java:publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create tag
         run: |
@@ -44,17 +54,18 @@ jobs:
           body: |
             ## Java SDK v${{ inputs.version }}
 
-            ### JitPack
+            ### GitHub Packages (Maven)
             ```gradle
             repositories {
-                maven { url 'https://jitpack.io' }
+                maven {
+                    url = uri("https://maven.pkg.github.com/regret-io/regret")
+                    credentials {
+                        username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user") as String?
+                        password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.key") as String?
+                    }
+                }
             }
             dependencies {
-                implementation 'com.github.regret-io.regret:sdk-java:sdk-java-v${{ inputs.version }}'
+                implementation("io.regret:regret-adapter-sdk-java:${{ inputs.version }}")
             }
             ```
-
-      - name: Trigger JitPack build
-        run: |
-          curl -s "https://jitpack.io/com/github/regret-io/regret/sdk-java/sdk-java-v${{ inputs.version }}/sdk-java-sdk-java-v${{ inputs.version }}.pom" || true
-          echo "JitPack build triggered for sdk-java-v${{ inputs.version }}"

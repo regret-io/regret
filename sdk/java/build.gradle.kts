@@ -53,11 +53,20 @@ protobuf {
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {
+            groupId = "io.regret"
             artifactId = "regret-adapter-sdk-java"
             from(components["java"])
         }
     }
     repositories {
         mavenLocal()
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/regret-io/regret")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user") as String? ?: ""
+                password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.key") as String? ?: ""
+            }
+        }
     }
 }
