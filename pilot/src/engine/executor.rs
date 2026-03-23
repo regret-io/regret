@@ -433,7 +433,7 @@ impl Executor {
                 };
                 Some(AdapterOpResult {
                     op_id: op.id.clone(), op: op_type.to_string(), status: status.to_string(),
-                    value: None, version_id: None,
+                    key: None, value: None, version_id: None,
                     records: if op_type == OpType::RangeScan { Some(vec![]) } else { None },
                     keys: if op_type == OpType::List { Some(vec![]) } else { None },
                     deleted_count: None, message: None,

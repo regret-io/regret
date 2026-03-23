@@ -80,6 +80,8 @@ pub struct AdapterOpResult {
     pub op: String,
     pub status: String,
     #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
     pub value: Option<String>,
     #[serde(default)]
     pub version_id: Option<u64>,

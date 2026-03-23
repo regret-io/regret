@@ -91,6 +91,7 @@ fn parse_op_result(r: proto::OpResult) -> AdapterOpResult {
     };
     AdapterOpResult {
         op_id: r.op_id, op: String::new(), status: r.status,
+        key: payload.get("key").and_then(|v| v.as_str()).map(|s| s.to_string()),
         value: payload.get("value").and_then(|v| v.as_str()).map(|s| s.to_string()),
         version_id: payload.get("version_id").and_then(|v| v.as_u64()),
         records: payload.get("records").and_then(|v| v.as_array().map(|arr| arr.iter().filter_map(|r| Some(RangeRecord { key: r.get("key")?.as_str()?.to_string(), value: r.get("value")?.as_str()?.to_string(), version_id: r.get("version_id")?.as_u64().unwrap_or(0) })).collect())),

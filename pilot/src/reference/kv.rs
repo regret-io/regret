@@ -160,18 +160,24 @@ impl BasicKvReference {
             }
             None => {
                 // Reference found no matching key within our prefix.
-                // For comparison gets (floor/ceiling/lower/higher), the adapter may find
-                // a key outside our prefix — this is valid global behavior, not a violation.
-                // Only flag violations for EQUAL gets where not_found is definitive.
-                if *comparison == GetComparison::Equal {
-                    if parsed_status == Some(&OpStatus::Ok) && result.value.is_some() {
-                        return Some(SafetyViolation {
-                            op_id: op.id.clone(),
-                            op: "get_equal".to_string(),
-                            expected: "not_found".to_string(),
-                            actual: format!("ok value={}", result.value.as_deref().unwrap_or("")),
-                        });
+                if parsed_status == Some(&OpStatus::Ok) && result.value.is_some() {
+                    // For comparison gets, check if the returned key is in our prefix.
+                    // If outside prefix, the adapter found a key in a different namespace — not a violation.
+                    if *comparison != GetComparison::Equal {
+                        if let Some(returned_key) = &result.key {
+                            if !returned_key.starts_with(&prefix) {
+                                return None; // Key outside our prefix — valid
+                            }
+                        } else {
+                            return None; // No returned key to verify
+                        }
                     }
+                    return Some(SafetyViolation {
+                        op_id: op.id.clone(),
+                        op: format!("get_{}", comparison_str(comparison)),
+                        expected: "not_found".to_string(),
+                        actual: format!("ok key={} value={}", result.key.as_deref().unwrap_or("?"), result.value.as_deref().unwrap_or("")),
+                    });
                 }
                 None
             }
