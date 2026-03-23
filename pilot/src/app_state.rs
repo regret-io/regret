@@ -11,4 +11,6 @@ pub struct AppState {
     pub files: FileStore,
     pub managers: ManagerRegistry,
     pub chaos: ChaosRegistry,
+    pub kube: kube::Client,
+    pub namespace: String,
 }

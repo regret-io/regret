@@ -96,12 +96,17 @@ async fn main() -> Result<()> {
 
     let chaos = ChaosRegistry::new(files.clone(), sqlite.clone(), managers.clone());
 
+    let kube_client = kube::Client::try_default().await?;
+    info!("kubernetes client initialized");
+
     let app_state = AppState {
         sqlite,
         rocks,
         files,
         managers,
         chaos,
+        kube: kube_client,
+        namespace: config.namespace.clone(),
     };
 
     let http_addr: SocketAddr = format!("0.0.0.0:{}", config.http_port).parse()?;

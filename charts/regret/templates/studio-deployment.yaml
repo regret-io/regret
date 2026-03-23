@@ -27,7 +27,7 @@ spec:
               containerPort: 3000
               protocol: TCP
           env:
-            - name: NEXT_PUBLIC_API_URL
+            - name: API_URL
               value: "http://{{ include "regret.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}"
           livenessProbe:
             httpGet:

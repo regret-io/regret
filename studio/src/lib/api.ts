@@ -1,5 +1,14 @@
 // API client — calls through Next.js proxy at /api/* → pilot
 
+const STORAGE_KEY = "regret_admin_password";
+
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const pw = localStorage.getItem(STORAGE_KEY);
+  if (!pw) return {};
+  return { Authorization: `Basic ${btoa(`:${pw}`)}` };
+}
+
 export interface Hypothesis {
   id: string;
   name: string;
@@ -68,7 +77,7 @@ export interface Adapter {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders(), ...init?.headers },
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

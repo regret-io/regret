@@ -41,6 +41,10 @@ spec:
               value: {{ .Values.service.grpcPort | quote }}
             - name: NAMESPACE
               value: {{ include "regret.adapterNamespace" . }}
+            {{- if .Values.authPassword }}
+            - name: AUTH_PASSWORD
+              value: {{ .Values.authPassword | quote }}
+            {{- end }}
           volumeMounts:
             - name: data
               mountPath: /data

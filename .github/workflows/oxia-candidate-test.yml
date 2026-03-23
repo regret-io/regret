@@ -1,0 +1,240 @@
+# This workflow is designed to be called FROM the Oxia repo.
+#
+# In the Oxia repo, create .github/workflows/regret-test.yml:
+#
+#   name: Regret Correctness Test
+#   on:
+#     push:
+#       tags: ['v*-rc*']         # trigger on release candidates
+#     workflow_dispatch:
+#       inputs:
+#         image_tag:
+#           description: 'Image tag to test (e.g. v0.5.0-rc1)'
+#           required: true
+#
+#   jobs:
+#     regret:
+#       uses: mattisonchao/regret/.github/workflows/oxia-candidate-test.yml@main
+#       with:
+#         candidate_image: "streamnative/oxia:${{ github.event.inputs.image_tag || github.ref_name }}"
+#         stable_image: "streamnative/oxia:latest"
+#       secrets:
+#         regret_api: ${{ secrets.REGRET_API_URL }}
+#         regret_password: ${{ secrets.REGRET_PASSWORD }}
+#         adapter_addr: ${{ secrets.REGRET_ADAPTER_ADDR }}
+#
+# Required secrets in the Oxia repo:
+#   REGRET_API_URL     - e.g. http://a6e268...elb.amazonaws.com:8080
+#   REGRET_PASSWORD    - auth password for write operations
+#   REGRET_ADAPTER_ADDR - e.g. http://oxia-adapter.regret-system.svc.cluster.local:9090
+
+name: Regret Candidate Release Test
+
+on:
+  workflow_call:
+    inputs:
+      candidate_image:
+        type: string
+        required: true
+        description: 'Candidate image to test (e.g. streamnative/oxia:v0.5.0-rc1)'
+      stable_image:
+        type: string
+        required: true
+        description: 'Stable image to downgrade to (e.g. streamnative/oxia:latest)'
+      duration:
+        type: string
+        default: '3h'
+        description: 'Test duration per hypothesis'
+      checkpoint_every:
+        type: string
+        default: '10m'
+        description: 'Checkpoint interval'
+      generators:
+        type: string
+        default: 'basic-kv kv-cas kv-ephemeral kv-secondary-index kv-sequence'
+        description: 'Space-separated list of generators to run'
+      upgrade_scenario:
+        type: string
+        default: 'oxia-upgrade-test'
+        description: 'Chaos scenario name for upgrade test'
+    secrets:
+      regret_api:
+        required: true
+        description: 'Regret pilot API URL'
+      regret_password:
+        required: true
+        description: 'Regret auth password'
+      adapter_addr:
+        required: true
+        description: 'Oxia adapter gRPC address inside the cluster'
+
+jobs:
+  candidate-test:
+    name: Correctness Test (${{ inputs.duration }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    env:
+      API: ${{ secrets.regret_api }}
+      AUTH: "admin:${{ secrets.regret_password }}"
+
+    steps:
+      - name: Validate inputs
+        run: |
+          echo "Candidate: ${{ inputs.candidate_image }}"
+          echo "Stable:    ${{ inputs.stable_image }}"
+          echo "Duration:  ${{ inputs.duration }}"
+          echo "Generators: ${{ inputs.generators }}"
+
+          # Check API is reachable
+          curl -sf "${API}/health" || { echo "ERROR: Regret API not reachable at ${API}"; exit 1; }
+
+      - name: Create hypotheses
+        id: hypotheses
+        run: |
+          HYP_IDS=""
+          FIRST_ID=""
+
+          for gen in ${{ inputs.generators }}; do
+            echo "Creating hypothesis: ci-${gen}..."
+            RESULT=$(curl -sf -u "${AUTH}" "${API}/api/hypothesis" \
+              -X POST -H 'Content-Type: application/json' \
+              -d "{
+                \"name\": \"ci-${gen}-${GITHUB_RUN_ID}\",
+                \"generator\": \"${gen}\",
+                \"adapter\": \"oxia\",
+                \"adapter_addr\": \"${{ secrets.adapter_addr }}\",
+                \"duration\": \"${{ inputs.duration }}\",
+                \"checkpoint_every\": \"${{ inputs.checkpoint_every }}\",
+                \"tolerance\": {\"structural\":[{\"field\":\"version_id\",\"ignore\":true}]}
+              }")
+            ID=$(echo "$RESULT" | jq -r .id)
+            echo "  Created: $ID ($gen)"
+            HYP_IDS="${HYP_IDS} ${ID}"
+            if [ -z "$FIRST_ID" ]; then FIRST_ID="$ID"; fi
+          done
+
+          echo "ids=${HYP_IDS}" >> $GITHUB_OUTPUT
+          echo "first_id=${FIRST_ID}" >> $GITHUB_OUTPUT
+          echo "Created ${#HYP_IDS[@]} hypotheses. Primary: ${FIRST_ID}"
+
+      - name: Start all runs
+        run: |
+          for hyp_id in ${{ steps.hypotheses.outputs.ids }}; do
+            echo "Starting run: $hyp_id"
+            curl -sf -u "${AUTH}" "${API}/api/hypothesis/${hyp_id}/run" \
+              -X POST -H 'Content-Type: application/json' -d '{}'
+          done
+          echo "All runs started."
+
+      - name: Trigger upgrade test
+        run: |
+          # Find the upgrade test scenario
+          SCENARIO_ID=$(curl -sf "${API}/api/chaos/scenarios" \
+            | jq -r '.items[] | select(.name=="${{ inputs.upgrade_scenario }}") | .id')
+
+          if [ -z "$SCENARIO_ID" ] || [ "$SCENARIO_ID" = "null" ]; then
+            echo "WARNING: Chaos scenario '${{ inputs.upgrade_scenario }}' not found, skipping upgrade test"
+            exit 0
+          fi
+
+          echo "Injecting upgrade test (scenario: $SCENARIO_ID)..."
+          curl -sf -u "${AUTH}" "${API}/api/chaos/scenarios/${SCENARIO_ID}/inject" \
+            -X POST -H 'Content-Type: application/json' \
+            -d "{
+              \"overrides\": {
+                \"upgrade_test\": {
+                  \"hypothesis_id\": \"${{ steps.hypotheses.outputs.first_id }}\",
+                  \"candidate_image\": \"${{ inputs.candidate_image }}\",
+                  \"stable_image\": \"${{ inputs.stable_image }}\"
+                }
+              }
+            }"
+          echo "Upgrade test injection started."
+
+      - name: Wait for completion
+        run: |
+          echo "Polling every 5 minutes..."
+          while true; do
+            ALL_DONE=true
+
+            for hyp_id in ${{ steps.hypotheses.outputs.ids }}; do
+              STATUS=$(curl -sf "${API}/api/hypothesis/${hyp_id}/status")
+              STATE=$(echo "$STATUS" | jq -r .status)
+              OPS=$(echo "$STATUS" | jq -r '.progress.completed_ops // 0')
+              ELAPSED=$(echo "$STATUS" | jq -r '.progress.elapsed_secs // 0')
+              VIOLATIONS=$(echo "$STATUS" | jq -r '.progress.safety_violations // 0')
+
+              echo "  $hyp_id: status=$STATE ops=$OPS elapsed=${ELAPSED}s violations=$VIOLATIONS"
+
+              if [ "$STATE" = "running" ]; then
+                ALL_DONE=false
+              fi
+            done
+
+            if [ "$ALL_DONE" = "true" ]; then
+              echo "All hypotheses finished."
+              break
+            fi
+
+            sleep 300
+          done
+
+      - name: Check results
+        id: results
+        run: |
+          FAILED=false
+          SUMMARY=""
+
+          for hyp_id in ${{ steps.hypotheses.outputs.ids }}; do
+            STATUS=$(curl -sf "${API}/api/hypothesis/${hyp_id}/status")
+            STATE=$(echo "$STATUS" | jq -r .status)
+            VIOLATIONS=$(echo "$STATUS" | jq -r '.progress.safety_violations // 0')
+            FAILED_CK=$(echo "$STATUS" | jq -r '.progress.failed_checkpoints // 0')
+            OPS=$(echo "$STATUS" | jq -r '.progress.completed_ops // 0')
+            PASSED_CK=$(echo "$STATUS" | jq -r '.progress.passed_checkpoints // 0')
+
+            if [ "$VIOLATIONS" != "0" ] || [ "$FAILED_CK" != "0" ]; then
+              echo "FAIL $hyp_id: violations=$VIOLATIONS failed_checkpoints=$FAILED_CK"
+              SUMMARY="${SUMMARY}\n- **FAIL** \`${hyp_id}\`: ${VIOLATIONS} violations, ${FAILED_CK} failed checkpoints"
+              FAILED=true
+            else
+              echo "PASS $hyp_id: ops=$OPS checkpoints=$PASSED_CK"
+              SUMMARY="${SUMMARY}\n- **PASS** \`${hyp_id}\`: ${OPS} ops, ${PASSED_CK} checkpoints passed"
+            fi
+          done
+
+          echo "failed=${FAILED}" >> $GITHUB_OUTPUT
+          echo "summary=${SUMMARY}" >> $GITHUB_OUTPUT
+
+      - name: Cleanup hypotheses
+        if: always()
+        run: |
+          for hyp_id in ${{ steps.hypotheses.outputs.ids }}; do
+            curl -sf -u "${AUTH}" "${API}/api/hypothesis/${hyp_id}" -X DELETE || true
+          done
+
+      - name: Report
+        if: always()
+        run: |
+          if [ "${{ steps.results.outputs.failed }}" = "true" ]; then
+            echo "### :x: Candidate Release Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Candidate:** \`${{ inputs.candidate_image }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Stable:** \`${{ inputs.stable_image }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Duration:** ${{ inputs.duration }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Results:**" >> $GITHUB_STEP_SUMMARY
+            echo -e "${{ steps.results.outputs.summary }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the [Regret Studio UI](${{ secrets.regret_api }}:3000) for detailed event logs." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "### :white_check_mark: Candidate Release Passed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Candidate:** \`${{ inputs.candidate_image }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Duration:** ${{ inputs.duration }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Results:**" >> $GITHUB_STEP_SUMMARY
+            echo -e "${{ steps.results.outputs.summary }}" >> $GITHUB_STEP_SUMMARY
+          fi

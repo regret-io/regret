@@ -8,6 +8,7 @@ storage:
   storageClass: ""
 
 service:
+  type: ClusterIP
   httpPort: 8080
   grpcPort: 9090
 
@@ -18,6 +19,9 @@ resources:
   limits:
     cpu: "2"
     memory: 2Gi
+
+# Basic auth password for write operations. Empty = auth disabled.
+authPassword: ""
 
 # Namespace where adapter pods will be deployed
 adapterNamespace: ""  # defaults to release namespace
