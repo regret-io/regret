@@ -94,6 +94,97 @@ impl FileStore {
         Ok(events)
     }
 
+    // --- Chaos event log (global) ---
+
+    fn chaos_events_path(&self) -> PathBuf {
+        self.base_path.join("chaos").join("events.jsonl")
+    }
+
+    pub fn append_chaos_event(&self, event_json: &str) -> Result<()> {
+        let path = self.chaos_events_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .context(format!("failed to open {}", path.display()))?;
+        writeln!(file, "{event_json}")?;
+        Ok(())
+    }
+
+    pub fn read_chaos_events(
+        &self,
+        since: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>> {
+        let path = self.chaos_events_path();
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let file = fs::File::open(&path)?;
+        let reader = BufReader::new(file);
+        let mut events = Vec::new();
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let event: serde_json::Value = serde_json::from_str(&line)?;
+            if let Some(s) = since {
+                if let Some(ts) = event.get("timestamp").and_then(|v| v.as_str()) {
+                    if ts < s {
+                        continue;
+                    }
+                }
+            }
+            events.push(event);
+        }
+        Ok(events)
+    }
+
+    /// Read hypothesis events merged with chaos events, sorted by timestamp.
+    pub fn read_merged_events(
+        &self,
+        hypothesis_id: &str,
+        run_id: Option<&str>,
+        event_type: Option<&str>,
+        since: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>> {
+        let mut hypothesis_events = self.read_events(hypothesis_id, run_id, event_type, since)?;
+
+        // Only merge chaos events if no specific event_type filter excludes them
+        let include_chaos = event_type.is_none()
+            || event_type == Some("ChaosInjected")
+            || event_type == Some("ChaosRecovered")
+            || event_type == Some("ChaosError")
+            || event_type == Some("InjectionStarted")
+            || event_type == Some("InjectionStopped");
+
+        if include_chaos {
+            let chaos_events = self.read_chaos_events(since)?;
+            // Filter chaos events by type if specified
+            for ce in chaos_events {
+                if let Some(et) = event_type {
+                    if ce.get("type").and_then(|v| v.as_str()) != Some(et) {
+                        continue;
+                    }
+                }
+                hypothesis_events.push(ce);
+            }
+        }
+
+        // Sort all events by timestamp
+        hypothesis_events.sort_by(|a, b| {
+            let ts_a = a.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+            let ts_b = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+            ts_a.cmp(ts_b)
+        });
+
+        Ok(hypothesis_events)
+    }
+
     pub fn write_checkpoint(
         &self,
         id: &str,
@@ -153,6 +244,25 @@ impl FileStore {
             zip.start_file(format!("{prefix}checkpoint/actual.json"), options)?;
             let data = fs::read(&actual_path)?;
             zip.write_all(&data)?;
+        }
+
+        // chaos/events.jsonl (global chaos events)
+        let chaos_path = self.chaos_events_path();
+        if chaos_path.exists() {
+            zip.start_file(format!("{prefix}chaos-events.jsonl"), options)?;
+            let data = fs::read(&chaos_path)?;
+            zip.write_all(&data)?;
+        }
+
+        // merged-timeline.jsonl — merged hypothesis + chaos events sorted by timestamp
+        let merged = self.read_merged_events(id, None, None, None)?;
+        if !merged.is_empty() {
+            zip.start_file(format!("{prefix}merged-timeline.jsonl"), options)?;
+            for event in &merged {
+                let line = serde_json::to_string(event).unwrap_or_default();
+                zip.write_all(line.as_bytes())?;
+                zip.write_all(b"\n")?;
+            }
         }
 
         let cursor = zip.finish()?;

@@ -21,7 +21,8 @@ use super::events::Event;
 #[derive(Debug, Clone)]
 pub struct ExecutionConfig {
     pub batch_size: usize,
-    pub checkpoint_every: usize,
+    /// Checkpoint interval in seconds. Default 600 (10 minutes).
+    pub checkpoint_interval_secs: u64,
     pub fail_fast: bool,
     /// Run duration in seconds. None = run forever until stopped.
     pub duration_secs: Option<u64>,
@@ -31,7 +32,7 @@ impl Default for ExecutionConfig {
     fn default() -> Self {
         Self {
             batch_size: 100,
-            checkpoint_every: 10,
+            checkpoint_interval_secs: 600, // 10m
             fail_fast: true,
             duration_secs: None,
         }
@@ -165,6 +166,8 @@ impl Executor {
         let mut total_ops = 0usize;
         let mut batch_counter = 0usize;
         let mut checkpoint_counter = 0usize;
+        let mut last_checkpoint = Instant::now();
+        let checkpoint_interval = std::time::Duration::from_secs(self.config.checkpoint_interval_secs);
 
         loop {
             // Check stop conditions
@@ -202,7 +205,6 @@ impl Executor {
                 }
 
                 let batch_id = format!("batch-{batch_counter:04}");
-                self.emit_event(Event::batch_started(&self.run_id, &batch_id, batch_counter, batch.len()));
                 let start = Instant::now();
 
                 let failures = if let Some(client) = &self.adapter_client {
@@ -213,38 +215,51 @@ impl Executor {
                             return Ok(StopReason::Error(e.to_string()));
                         }
                     };
-                    // Log the batch with results
-                    let op_records: Vec<super::events::OpRecord> = batch.iter().zip(results.iter())
-                        .map(|(op, res)| super::events::OpRecord {
-                            op_id: op.id.clone(),
-                            op_type: op_type_str(&op.kind),
-                            payload: op_payload(&op.kind),
-                            status: res.status.clone(),
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    let response = AdapterBatchResponse { batch_id: batch_id.clone(), results };
+                    let failures = self.reference.process_response(batch, &response, &self.tolerance);
+
+                    // Build op records with verification info
+                    let failed_ops: std::collections::HashSet<&str> =
+                        failures.iter().map(|f| f.op_id.as_str()).collect();
+                    let op_records: Vec<super::events::OpRecord> = batch.iter().zip(response.results.iter())
+                        .map(|(op, res)| {
+                            let is_failed = failed_ops.contains(op.id.as_str());
+                            let failure = failures.iter().find(|f| f.op_id == op.id);
+                            super::events::OpRecord {
+                                op_id: op.id.clone(),
+                                op_type: op_type_str(&op.kind),
+                                payload: op_payload(&op.kind),
+                                status: res.status.clone(),
+                                response: op_response(res),
+                                expected: failure.map(|f| serde_json::json!(f.expected)),
+                                actual: failure.map(|f| serde_json::json!(f.actual)),
+                                verified: Some(!is_failed),
+                            }
                         })
                         .collect();
-                    self.emit_event(Event::operation_batch(&self.run_id, &batch_id, op_records));
-
-                    let response = AdapterBatchResponse { batch_id: batch_id.clone(), results };
-                    self.reference.process_response(batch, &response, &self.tolerance)
+                    self.emit_event(Event::operation_batch(&self.run_id, &batch_id, batch_counter, duration_ms, op_records));
+                    failures
                 } else {
                     let mock = self.build_mock_results(batch);
-                    let op_records: Vec<super::events::OpRecord> = batch.iter().zip(mock.iter())
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    let response = AdapterBatchResponse { batch_id: batch_id.clone(), results: mock };
+                    let _ = self.reference.process_response(batch, &response, &self.tolerance);
+                    let op_records: Vec<super::events::OpRecord> = batch.iter().zip(response.results.iter())
                         .map(|(op, res)| super::events::OpRecord {
                             op_id: op.id.clone(),
                             op_type: op_type_str(&op.kind),
                             payload: op_payload(&op.kind),
                             status: res.status.clone(),
+                            response: op_response(res),
+                            expected: None,
+                            actual: None,
+                            verified: None,
                         })
                         .collect();
-                    self.emit_event(Event::operation_batch(&self.run_id, &batch_id, op_records));
-
-                    let response = AdapterBatchResponse { batch_id: batch_id.clone(), results: mock };
-                    let _ = self.reference.process_response(batch, &response, &self.tolerance);
+                    self.emit_event(Event::operation_batch(&self.run_id, &batch_id, batch_counter, duration_ms, op_records));
                     vec![]
                 };
-
-                let duration_ms = start.elapsed().as_millis() as u64;
-                self.emit_event(Event::batch_completed(&self.run_id, &batch_id, duration_ms));
                 if !failures.is_empty() {
                     let mut p = self.progress.write().await;
                     p.safety_violations += failures.len();
@@ -268,8 +283,9 @@ impl Executor {
 
                 batch_counter += 1;
 
-                if batch_counter % self.config.checkpoint_every == 0 {
+                if last_checkpoint.elapsed() >= checkpoint_interval {
                     checkpoint_counter += 1;
+                    last_checkpoint = Instant::now();
                     let r = self.run_checkpoint(checkpoint_counter).await?;
                     if r == StopReason::CheckpointFailed && self.config.fail_fast {
                         return Ok(StopReason::CheckpointFailed);
@@ -361,9 +377,9 @@ impl Executor {
         let prefix = format!("/{}/", self.hypothesis_id);
         let count = self.reference.touched_keys().len();
 
-        self.emit_event(Event::checkpoint_started(&self.run_id, &id, count));
         { self.progress.write().await.total_checkpoints += 1; }
 
+        let start = Instant::now();
         let actual = if let Some(client) = &self.adapter_client {
             client.read_state(&prefix).await?
         } else {
@@ -371,16 +387,18 @@ impl Executor {
         };
 
         let failures = self.reference.verify_checkpoint(&actual, &self.tolerance);
+        let duration_ms = start.elapsed().as_millis() as u64;
+        let expect = self.reference.snapshot(self.reference.touched_keys());
 
-        if failures.is_empty() {
+        let passed = failures.is_empty();
+        self.emit_event(Event::checkpoint(&self.run_id, &id, duration_ms, &expect, &actual, &failures));
+
+        if passed {
             { self.progress.write().await.passed_checkpoints += 1; }
-            self.emit_event(Event::checkpoint_passed(&self.run_id, &id, count));
             Ok(StopReason::Completed)
         } else {
             { self.progress.write().await.failed_checkpoints += 1; }
-            let expect = self.reference.snapshot(self.reference.touched_keys());
             let _ = self.files.write_checkpoint(&self.hypothesis_id, &serde_json::to_value(&expect)?, &serde_json::to_value(&actual)?);
-            self.emit_event(Event::checkpoint_failed(&self.run_id, &id, failures.len()));
             if self.config.fail_fast { Ok(StopReason::CheckpointFailed) } else { Ok(StopReason::Completed) }
         }
     }
@@ -466,6 +484,30 @@ fn op_key(kind: &OpKind) -> Option<String> {
         | OpKind::IndexedRangeScan { .. } => None, // reads don't conflict
         OpKind::DeleteRange { .. } | OpKind::Fence => None,
     }
+}
+
+/// Build response JSON from adapter result — includes value, version_id, records, keys, etc.
+fn op_response(res: &AdapterOpResult) -> serde_json::Value {
+    let mut m = serde_json::Map::new();
+    if let Some(v) = &res.value {
+        m.insert("value".into(), serde_json::json!(v));
+    }
+    if let Some(v) = res.version_id {
+        m.insert("version_id".into(), serde_json::json!(v));
+    }
+    if let Some(recs) = &res.records {
+        m.insert("records".into(), serde_json::to_value(recs).unwrap_or_default());
+    }
+    if let Some(keys) = &res.keys {
+        m.insert("keys".into(), serde_json::json!(keys));
+    }
+    if let Some(c) = res.deleted_count {
+        m.insert("deleted_count".into(), serde_json::json!(c));
+    }
+    if let Some(msg) = &res.message {
+        m.insert("message".into(), serde_json::json!(msg));
+    }
+    serde_json::Value::Object(m)
 }
 
 fn parse_origin_op(json: &serde_json::Value) -> Option<Operation> {

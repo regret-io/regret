@@ -1,3 +1,4 @@
+use crate::chaos::executor::ChaosRegistry;
 use crate::engine::ManagerRegistry;
 use crate::storage::files::FileStore;
 use crate::storage::rocks::RocksStore;
@@ -9,4 +10,5 @@ pub struct AppState {
     pub rocks: RocksStore,
     pub files: FileStore,
     pub managers: ManagerRegistry,
+    pub chaos: ChaosRegistry,
 }

@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "regret.fullname" . }}-studio
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "regret.labels" . | nindent 4 }}
+    app.kubernetes.io/component: studio
+spec:
+  type: {{ .Values.studio.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.studio.service.port }}
+      targetPort: http
+      protocol: TCP
+      {{- if and (eq .Values.studio.service.type "NodePort") .Values.studio.service.nodePort }}
+      nodePort: {{ .Values.studio.service.nodePort }}
+      {{- end }}
+  selector:
+    app.kubernetes.io/name: {{ include "regret.name" . }}-studio
+    app.kubernetes.io/instance: {{ .Release.Name }}

@@ -135,7 +135,7 @@ impl BasicKvReference {
         result: &AdapterOpResult,
         tolerance: &Option<Tolerance>,
     ) -> Option<SafetyViolation> {
-        let ignore_version = Self::should_ignore_field("metadata.version_id", tolerance);
+        let ignore_version = Self::should_ignore_field("version_id", tolerance);
 
         let parsed_status = OpStatus::from_str(&result.status).ok();
 
@@ -338,7 +338,7 @@ impl ReferenceModel for BasicKvReference {
     ) -> Vec<CheckpointFailure> {
         let mut failures = Vec::new();
         let expect = self.snapshot(&self.touched_keys);
-        let ignore_version = Self::should_ignore_field("metadata.version_id", tolerance);
+        let ignore_version = Self::should_ignore_field("version_id", tolerance);
 
         let all_keys: HashSet<&String> = expect.keys().chain(actual_state.keys()).collect();
 
@@ -386,7 +386,6 @@ impl ReferenceModel for BasicKvReference {
                         Some(RecordState {
                             value: r.value,
                             version_id: r.version_id,
-                            metadata: HashMap::new(),
                         })
                     }
                 });

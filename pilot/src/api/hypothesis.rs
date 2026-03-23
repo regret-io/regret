@@ -40,7 +40,7 @@ pub async fn create(
     let hypothesis = state.sqlite.create_hypothesis(
         &id, &req.name, &req.generator,
         req.adapter.as_deref(), req.adapter_addr.as_deref(), req.duration.as_deref(),
-        tolerance_json.as_deref(), req.checkpoint_every, &key_space_json, "{}",
+        tolerance_json.as_deref(), &req.checkpoint_every, &key_space_json, "{}",
     ).await?;
 
     state.rocks.create_cf(&id)?;
@@ -115,8 +115,10 @@ pub async fn start_run(
 
     let duration_secs = hypothesis.duration.as_ref().and_then(|d| parse_duration(d));
 
+    let checkpoint_interval_secs = parse_duration(&hypothesis.checkpoint_every).unwrap_or(600);
+
     let config = ExecutionConfig {
-        checkpoint_every: hypothesis.checkpoint_every as usize,
+        checkpoint_interval_secs,
         duration_secs,
         ..ExecutionConfig::default()
     };
@@ -131,6 +133,10 @@ pub async fn start_run(
         ops: usize::MAX,
         ..crate::generator::GenerateParams::default()
     };
+    // Apply stored key_space config (e.g. count)
+    if let Ok(ks) = serde_json::from_str::<crate::generator::KeySpaceConfig>(&hypothesis.key_space) {
+        gen_params.key_space = ks;
+    }
     gen_params.key_space.prefix = format!("/{id}/");
 
     let mut mgr = manager.lock().await;
@@ -165,9 +171,14 @@ pub async fn status(State(state): State<AppState>, Path(id): Path<String>) -> Re
 
 pub async fn events(State(state): State<AppState>, Path(id): Path<String>, Query(query): Query<EventsQuery>) -> Result<impl IntoResponse, ApiError> {
     state.sqlite.get_hypothesis(&id).await?.ok_or_else(|| ApiError::NotFound(format!("hypothesis {id} not found")))?;
-    let events = state.files.read_events(&id, query.run_id.as_deref(), query.event_type.as_deref(), query.since.as_deref())?;
+    let events = state.files.read_merged_events(&id, query.run_id.as_deref(), query.event_type.as_deref(), query.since.as_deref())?;
+    let tail = if let Some(last) = query.last {
+        if events.len() > last { &events[events.len() - last..] } else { &events }
+    } else {
+        &events
+    };
     let mut body = String::new();
-    for event in &events { body.push_str(&serde_json::to_string(event).unwrap_or_default()); body.push('\n'); }
+    for event in tail { body.push_str(&serde_json::to_string(event).unwrap_or_default()); body.push('\n'); }
     Ok(([(header::CONTENT_TYPE, "application/x-ndjson")], body))
 }
 
@@ -222,7 +233,7 @@ fn to_response(h: &crate::storage::sqlite::Hypothesis) -> HypothesisResponse {
         adapter: h.adapter.clone(),
         adapter_addr: h.adapter_addr.clone(),
         duration: h.duration.clone(),
-        checkpoint_every: h.checkpoint_every,
+        checkpoint_every: h.checkpoint_every.clone(),
         tolerance: h.tolerance.as_ref().and_then(|t| serde_json::from_str(t).ok()),
         status: h.status.clone(),
         created_at: h.created_at.clone(),

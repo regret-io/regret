@@ -1,7 +1,7 @@
 use chrono::Utc;
 use serde::Serialize;
 
-use crate::reference::{CheckpointFailure, SafetyViolation};
+use crate::reference::SafetyViolation;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OpRecord {
@@ -9,6 +9,21 @@ pub struct OpRecord {
     pub op_type: String,
     pub payload: serde_json::Value,
     pub status: String,
+    pub response: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CheckpointDetail {
+    pub key: String,
+    pub matched: bool,
+    pub expected: serde_json::Value,
+    pub actual: serde_json::Value,
 }
 
 /// All event types written to events.jsonl.
@@ -20,26 +35,13 @@ pub enum Event {
         hypothesis_id: String,
         timestamp: String,
     },
-    AdapterDeployed {
-        adapter: String,
-        address: String,
-        timestamp: String,
-    },
-    AdapterReady {
-        adapter: String,
-        timestamp: String,
-    },
-    BatchStarted {
+    OperationBatch {
         run_id: String,
         batch_id: String,
         offset: usize,
         size: usize,
-        timestamp: String,
-    },
-    BatchCompleted {
-        run_id: String,
-        batch_id: String,
         duration_ms: u64,
+        ops: Vec<OpRecord>,
         timestamp: String,
     },
     BatchFailed {
@@ -58,32 +60,13 @@ pub enum Event {
         actual: String,
         timestamp: String,
     },
-    OperationBatch {
-        run_id: String,
-        batch_id: String,
-        ops: Vec<OpRecord>,
-        timestamp: String,
-    },
-    CheckpointStarted {
+    Checkpoint {
         run_id: String,
         checkpoint_id: String,
         keys: usize,
-        timestamp: String,
-    },
-    CheckpointPassed {
-        run_id: String,
-        checkpoint_id: String,
-        keys_checked: usize,
-        timestamp: String,
-    },
-    CheckpointFailed {
-        run_id: String,
-        checkpoint_id: String,
-        failures: usize,
-        timestamp: String,
-    },
-    AdapterTeardown {
-        adapter: String,
+        passed: bool,
+        duration_ms: u64,
+        details: Vec<CheckpointDetail>,
         timestamp: String,
     },
     RunCompleted {
@@ -104,10 +87,20 @@ impl Event {
         Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
     }
 
-    pub fn operation_batch(run_id: &str, batch_id: &str, ops: Vec<OpRecord>) -> Self {
+    pub fn operation_batch(
+        run_id: &str,
+        batch_id: &str,
+        offset: usize,
+        duration_ms: u64,
+        ops: Vec<OpRecord>,
+    ) -> Self {
+        let size = ops.len();
         Event::OperationBatch {
             run_id: run_id.to_string(),
             batch_id: batch_id.to_string(),
+            offset,
+            size,
+            duration_ms,
             ops,
             timestamp: Self::now(),
         }
@@ -117,25 +110,6 @@ impl Event {
         Event::RunStarted {
             run_id: run_id.to_string(),
             hypothesis_id: hypothesis_id.to_string(),
-            timestamp: Self::now(),
-        }
-    }
-
-    pub fn batch_started(run_id: &str, batch_id: &str, offset: usize, size: usize) -> Self {
-        Event::BatchStarted {
-            run_id: run_id.to_string(),
-            batch_id: batch_id.to_string(),
-            offset,
-            size,
-            timestamp: Self::now(),
-        }
-    }
-
-    pub fn batch_completed(run_id: &str, batch_id: &str, duration_ms: u64) -> Self {
-        Event::BatchCompleted {
-            run_id: run_id.to_string(),
-            batch_id: batch_id.to_string(),
-            duration_ms,
             timestamp: Self::now(),
         }
     }
@@ -162,29 +136,41 @@ impl Event {
         }
     }
 
-    pub fn checkpoint_started(run_id: &str, checkpoint_id: &str, keys: usize) -> Self {
-        Event::CheckpointStarted {
-            run_id: run_id.to_string(),
-            checkpoint_id: checkpoint_id.to_string(),
-            keys,
-            timestamp: Self::now(),
-        }
-    }
+    pub fn checkpoint(
+        run_id: &str,
+        checkpoint_id: &str,
+        duration_ms: u64,
+        expected: &std::collections::HashMap<String, Option<crate::reference::RecordState>>,
+        actual: &std::collections::HashMap<String, Option<crate::reference::RecordState>>,
+        failures: &[crate::reference::CheckpointFailure],
+    ) -> Self {
+        let failed_keys: std::collections::HashSet<&str> =
+            failures.iter().map(|f| f.key.as_str()).collect();
 
-    pub fn checkpoint_passed(run_id: &str, checkpoint_id: &str, keys_checked: usize) -> Self {
-        Event::CheckpointPassed {
-            run_id: run_id.to_string(),
-            checkpoint_id: checkpoint_id.to_string(),
-            keys_checked,
-            timestamp: Self::now(),
-        }
-    }
+        let all_keys: std::collections::BTreeSet<&String> =
+            expected.keys().chain(actual.keys()).collect();
 
-    pub fn checkpoint_failed(run_id: &str, checkpoint_id: &str, failures: usize) -> Self {
-        Event::CheckpointFailed {
+        let details: Vec<CheckpointDetail> = all_keys
+            .iter()
+            .map(|key| {
+                let exp = expected.get(*key).cloned().flatten();
+                let act = actual.get(*key).cloned().flatten();
+                CheckpointDetail {
+                    key: (*key).clone(),
+                    matched: !failed_keys.contains(key.as_str()),
+                    expected: serde_json::to_value(&exp).unwrap_or_default(),
+                    actual: serde_json::to_value(&act).unwrap_or_default(),
+                }
+            })
+            .collect();
+
+        Event::Checkpoint {
             run_id: run_id.to_string(),
             checkpoint_id: checkpoint_id.to_string(),
-            failures,
+            keys: details.len(),
+            passed: failures.is_empty(),
+            duration_ms,
+            details,
             timestamp: Self::now(),
         }
     }

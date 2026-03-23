@@ -14,7 +14,7 @@ import { getHypothesis, getStatus, getEvents, getResults, stopRun, downloadBundl
 import { useRouter } from "next/navigation";
 import {
   ArrowLeftIcon, SquareIcon, DownloadIcon, Trash2Icon,
-  ClockIcon, ZapIcon, ShieldCheckIcon, AlertTriangleIcon, LayersIcon,
+  ClockIcon, ZapIcon, ShieldCheckIcon, AlertTriangleIcon, LayersIcon, Loader2Icon,
 } from "lucide-react";
 
 function formatElapsed(secs: number): string {
@@ -41,6 +41,7 @@ export default function RunDetailPage({
   const [result, setResult] = useState<RunResult | null>(null);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [tab, setTab] = useState<"stats" | "events">("stats");
+  const [downloading, setDownloading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isRunning = status?.status === "running" && status?.run_id === runId;
@@ -99,10 +100,14 @@ export default function RunDetailPage({
   }
 
   async function handleDownload() {
+    setDownloading(true);
     try {
       await downloadBundle(hypothesisId);
+      toast.success("Bundle downloaded");
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -153,8 +158,9 @@ export default function RunDetailPage({
               <SquareIcon className="size-3 mr-1" /> Stop
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={handleDownload}>
-            <DownloadIcon className="size-3 mr-1" /> Bundle
+          <Button variant="outline" size="sm" onClick={handleDownload} disabled={downloading}>
+            {downloading ? <Loader2Icon className="size-3 mr-1 animate-spin" /> : <DownloadIcon className="size-3 mr-1" />}
+            {downloading ? "Preparing..." : "Bundle"}
           </Button>
           {!isRunning && result && (
             <Button variant="destructive" size="sm" onClick={handleDelete}>
@@ -255,7 +261,7 @@ function EventRow({ ev }: { ev: EventItem }) {
   return (
     <div>
       <div
-        className={`flex items-center gap-3 px-3 py-2 text-xs ${expandable ? "cursor-pointer hover:bg-zinc-800/50" : ""} ${ev.type === "SafetyViolation" ? "bg-red-500/5" : ""}`}
+        className={`flex items-center gap-3 px-3 py-2 text-xs ${expandable ? "cursor-pointer hover:bg-zinc-800/50" : ""} ${ev.type === "SafetyViolation" ? "bg-red-500/5" : ""} ${ev.type === "Checkpoint" && ev.passed === false ? "bg-red-500/5" : ""}`}
         onClick={() => expandable && setExpanded(!expanded)}
       >
         <span className="font-mono text-zinc-500 w-[75px] shrink-0">
@@ -271,25 +277,59 @@ function EventRow({ ev }: { ev: EventItem }) {
       </div>
       {expanded && ev.type === "OperationBatch" && ops && (
         <div className="bg-zinc-900/50 border-t border-zinc-800 px-4 py-2 space-y-1">
-          {ops.map((op, j) => (
-            <div key={j} className="flex items-center gap-2 font-mono text-xs">
-              <span className="text-zinc-500 w-[70px]">{op.op_id}</span>
-              <span className={`w-[100px] ${op.status === "ok" ? "text-emerald-400" : op.status === "not_found" ? "text-amber-400" : "text-red-400"}`}>
-                {op.op_type}
-              </span>
-              <span className="text-zinc-400 flex-1 truncate">
-                {Object.entries(op.payload).map(([k, v]) => `${k}=${v}`).join(" ")}
-              </span>
-              <span className={`w-[80px] text-right ${op.status === "ok" ? "text-emerald-400" : op.status === "not_found" ? "text-amber-400" : "text-red-400"}`}>
-                {op.status}
-              </span>
-            </div>
-          ))}
+          {ops.map((op: Record<string, unknown>, j: number) => {
+            const verified = op.verified as boolean | undefined;
+            const expected = op.expected as unknown;
+            const actual = op.actual as unknown;
+            const payload = op.payload as Record<string, unknown>;
+            const response = op.response as Record<string, unknown> | undefined;
+            const hasResponse = response && Object.keys(response).length > 0;
+            return (
+              <div key={j}>
+                <div className="flex items-center gap-2 font-mono text-xs">
+                  <span className="text-zinc-500 w-[70px]">{String(op.op_id)}</span>
+                  <span className={`w-[100px] ${op.status === "ok" ? "text-emerald-400" : op.status === "not_found" ? "text-amber-400" : "text-red-400"}`}>
+                    {String(op.op_type)}
+                  </span>
+                  <span className="text-zinc-400 flex-1 truncate">
+                    {Object.entries(payload).map(([k, v]) => `${k}=${v}`).join(" ")}
+                  </span>
+                  <span className={`w-[80px] text-right ${op.status === "ok" ? "text-emerald-400" : op.status === "not_found" ? "text-amber-400" : "text-red-400"}`}>
+                    {String(op.status)}
+                  </span>
+                  {verified !== undefined && (
+                    <span className={`w-[16px] text-right ${verified ? "text-emerald-400" : "text-red-400"}`}>
+                      {verified ? "✓" : "✗"}
+                    </span>
+                  )}
+                </div>
+                {hasResponse && (
+                  <div className="ml-[78px] mt-0.5 text-xs font-mono text-zinc-500">
+                    <span className="text-zinc-600">response: </span>
+                    {Object.entries(response).map(([k, v]) => (
+                      <span key={k} className="mr-2">
+                        <span className="text-zinc-500">{k}=</span>
+                        <span className="text-zinc-400">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {verified === false && expected !== undefined && (
+                  <div className="ml-[78px] mt-0.5 mb-1 text-xs font-mono">
+                    <span className="text-emerald-400">expected: </span>
+                    <span className="text-zinc-300">{JSON.stringify(expected)}</span>
+                    <span className="text-red-400 ml-3">actual: </span>
+                    <span className="text-zinc-300">{JSON.stringify(actual)}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       {expanded && ev.type === "SafetyViolation" && (
         <div className="bg-red-500/5 border-t border-red-800/30 px-4 py-2 space-y-1 font-mono text-xs">
-          <div className="text-zinc-400">Op: <span className="text-zinc-200">{ev.op_id} ({ev.op})</span></div>
+          <div className="text-zinc-400">Op: <span className="text-zinc-200">{String(ev.op_id)} ({String(ev.op)})</span></div>
           <div className="text-emerald-400">Expected: <span className="text-zinc-200">{String(ev.expected)}</span></div>
           <div className="text-red-400">Actual: <span className="text-zinc-200">{String(ev.actual)}</span></div>
         </div>
@@ -303,12 +343,9 @@ function EventBadge({ type }: { type: string }) {
     RunStarted: "bg-blue-500/10 text-blue-400 border-blue-800",
     RunCompleted: "bg-emerald-500/10 text-emerald-400 border-emerald-800",
     RunStopped: "bg-amber-500/10 text-amber-400 border-amber-800",
-    BatchStarted: "bg-zinc-800 text-zinc-400 border-zinc-700",
-    BatchCompleted: "bg-zinc-800 text-zinc-400 border-zinc-700",
     OperationBatch: "bg-indigo-500/10 text-indigo-400 border-indigo-800",
     BatchFailed: "bg-red-500/10 text-red-400 border-red-800",
-    CheckpointPassed: "bg-emerald-500/10 text-emerald-400 border-emerald-800",
-    CheckpointFailed: "bg-red-500/10 text-red-400 border-red-800",
+    Checkpoint: "bg-cyan-500/10 text-cyan-400 border-cyan-800",
     SafetyViolation: "bg-red-500/10 text-red-400 border-red-800",
   };
   return (
@@ -322,10 +359,11 @@ function eventSummary(ev: EventItem): string {
   const parts: string[] = [];
   if (ev.batch_id) parts.push(`batch=${ev.batch_id}`);
 
-  // OperationBatch — show ops summary
+  // OperationBatch — show ops summary + duration
   if (ev.type === "OperationBatch" && Array.isArray(ev.ops)) {
     const ops = ev.ops as Array<{op_id: string; op_type: string; payload: Record<string, unknown>; status: string}>;
     parts.push(`${ops.length} ops`);
+    if (ev.duration_ms !== undefined) parts.push(`${ev.duration_ms}ms`);
     const types = new Map<string, number>();
     for (const op of ops) {
       types.set(op.op_type, (types.get(op.op_type) || 0) + 1);
@@ -334,6 +372,19 @@ function eventSummary(ev: EventItem): string {
     parts.push(summary);
     const failed = ops.filter(o => o.status !== "ok" && o.status !== "not_found");
     if (failed.length > 0) parts.push(`⚠ ${failed.length} non-ok`);
+    return parts.join(" | ");
+  }
+
+  // Checkpoint — show passed/failed + keys + duration
+  if (ev.type === "Checkpoint") {
+    if (ev.checkpoint_id) parts.push(String(ev.checkpoint_id));
+    parts.push(ev.passed ? "✓ passed" : "✗ failed");
+    if (ev.keys !== undefined) parts.push(`${ev.keys} keys`);
+    if (ev.duration_ms !== undefined) parts.push(`${ev.duration_ms}ms`);
+    if (!ev.passed && Array.isArray(ev.details)) {
+      const failed = (ev.details as Array<{matched: boolean}>).filter(d => !d.matched).length;
+      parts.push(`${failed} mismatched`);
+    }
     return parts.join(" | ");
   }
 

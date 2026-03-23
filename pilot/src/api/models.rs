@@ -12,14 +12,14 @@ pub struct CreateHypothesisRequest {
     pub adapter_addr: Option<String>,
     pub duration: Option<String>,
     #[serde(default = "default_checkpoint_every")]
-    pub checkpoint_every: i32,
+    pub checkpoint_every: String,
     #[serde(default)]
     pub tolerance: Option<serde_json::Value>,
     #[serde(default)]
     pub key_space: Option<serde_json::Value>,
 }
 
-fn default_checkpoint_every() -> i32 { 10 }
+fn default_checkpoint_every() -> String { "10m".to_string() }
 
 #[derive(Debug, Serialize)]
 pub struct HypothesisResponse {
@@ -32,7 +32,7 @@ pub struct HypothesisResponse {
     pub adapter_addr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<String>,
-    pub checkpoint_every: i64,
+    pub checkpoint_every: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tolerance: Option<serde_json::Value>,
     pub status: String,
@@ -75,6 +75,8 @@ pub struct EventsQuery {
     #[serde(rename = "type")]
     pub event_type: Option<String>,
     pub since: Option<String>,
+    /// Return only the last N events (applied after filtering).
+    pub last: Option<usize>,
 }
 
 // --- Bundle query ---

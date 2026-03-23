@@ -1,6 +1,6 @@
 use std::env;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     pub data_dir: String,
     pub http_port: u16,
@@ -8,6 +8,22 @@ pub struct Config {
     pub namespace: String,
     pub database_url: String,
     pub rocksdb_path: String,
+    /// Basic auth password for write operations. None = auth disabled.
+    pub auth_password: Option<String>,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("data_dir", &self.data_dir)
+            .field("http_port", &self.http_port)
+            .field("grpc_port", &self.grpc_port)
+            .field("namespace", &self.namespace)
+            .field("database_url", &self.database_url)
+            .field("rocksdb_path", &self.rocksdb_path)
+            .field("auth_password", &self.auth_password.as_ref().map(|_| "***"))
+            .finish()
+    }
 }
 
 impl Config {
@@ -28,6 +44,7 @@ impl Config {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(9090),
             namespace: env::var("NAMESPACE").unwrap_or_else(|_| "regret-system".to_string()),
+            auth_password: env::var("AUTH_PASSWORD").ok().filter(|s| !s.is_empty()),
         }
     }
 }

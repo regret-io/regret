@@ -13,8 +13,6 @@ use crate::storage::rocks::RocksStore;
 pub struct RecordState {
     pub value: Option<String>,
     pub version_id: u64,
-    #[serde(default)]
-    pub metadata: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Display, EnumString)]

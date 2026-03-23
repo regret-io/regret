@@ -16,7 +16,7 @@ pub struct Hypothesis {
     pub adapter_addr: Option<String>,
     pub duration: Option<String>,
     pub tolerance: Option<String>,
-    pub checkpoint_every: i64,
+    pub checkpoint_every: String,
     pub key_space: String,
     pub config: String,
     pub status: String,
@@ -42,6 +42,26 @@ pub struct GeneratorRecord {
     pub rate: i64,        // target ops/sec, 0 = unlimited
     pub builtin: i32,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct ChaosScenarioRecord {
+    pub id: String,
+    pub name: String,
+    pub namespace: String,
+    pub actions: String, // JSON array
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct ChaosInjectionRecord {
+    pub id: String,
+    pub scenario_id: String,
+    pub scenario_name: String,
+    pub status: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -100,7 +120,7 @@ impl SqliteStore {
         adapter_addr: Option<&str>,
         duration: Option<&str>,
         tolerance: Option<&str>,
-        checkpoint_every: i32,
+        checkpoint_every: &str,
         key_space: &str,
         config: &str,
     ) -> Result<Hypothesis> {
@@ -253,7 +273,7 @@ impl SqliteStore {
     ) -> Result<()> {
         sqlx::query(
             "INSERT INTO generators (name, description, workload, rate, builtin) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(name) DO NOTHING",
+             ON CONFLICT(name) DO UPDATE SET workload = excluded.workload, description = excluded.description WHERE builtin = 1",
         )
         .bind(name)
         .bind(description)
@@ -332,6 +352,162 @@ impl SqliteStore {
 
     pub async fn delete_result(&self, id: &str) -> Result<bool> {
         let result = sqlx::query("DELETE FROM hypothesis_results WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    // --- Chaos Scenarios ---
+
+    pub async fn create_chaos_scenario(
+        &self,
+        id: &str,
+        name: &str,
+        namespace: &str,
+        actions_json: &str,
+    ) -> Result<ChaosScenarioRecord> {
+        sqlx::query(
+            "INSERT INTO chaos_scenarios (id, name, namespace, actions) VALUES (?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(namespace)
+        .bind(actions_json)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_chaos_scenario(id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("failed to read just-created chaos scenario"))
+    }
+
+    pub async fn upsert_chaos_scenario(
+        &self,
+        id: &str,
+        name: &str,
+        namespace: &str,
+        actions_json: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO chaos_scenarios (id, name, namespace, actions) VALUES (?, ?, ?, ?)
+             ON CONFLICT(name) DO NOTHING",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(namespace)
+        .bind(actions_json)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_chaos_scenario(&self, id: &str) -> Result<Option<ChaosScenarioRecord>> {
+        Ok(
+            sqlx::query_as::<_, ChaosScenarioRecord>(
+                "SELECT * FROM chaos_scenarios WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?,
+        )
+    }
+
+    pub async fn list_chaos_scenarios(&self) -> Result<Vec<ChaosScenarioRecord>> {
+        Ok(sqlx::query_as::<_, ChaosScenarioRecord>(
+            "SELECT * FROM chaos_scenarios ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn update_chaos_scenario(
+        &self,
+        id: &str,
+        name: &str,
+        namespace: &str,
+        actions_json: &str,
+    ) -> Result<Option<ChaosScenarioRecord>> {
+        sqlx::query(
+            "UPDATE chaos_scenarios SET name = ?, namespace = ?, actions = ? WHERE id = ?",
+        )
+        .bind(name)
+        .bind(namespace)
+        .bind(actions_json)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        self.get_chaos_scenario(id).await
+    }
+
+    pub async fn delete_chaos_scenario(&self, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM chaos_scenarios WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    // --- Chaos Injections ---
+
+    pub async fn create_chaos_injection(
+        &self,
+        id: &str,
+        scenario_id: &str,
+        scenario_name: &str,
+    ) -> Result<ChaosInjectionRecord> {
+        sqlx::query(
+            "INSERT INTO chaos_injections (id, scenario_id, scenario_name) VALUES (?, ?, ?)",
+        )
+        .bind(id)
+        .bind(scenario_id)
+        .bind(scenario_name)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_chaos_injection(id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("failed to read just-created chaos injection"))
+    }
+
+    pub async fn get_chaos_injection(&self, id: &str) -> Result<Option<ChaosInjectionRecord>> {
+        Ok(
+            sqlx::query_as::<_, ChaosInjectionRecord>(
+                "SELECT * FROM chaos_injections WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?,
+        )
+    }
+
+    pub async fn list_chaos_injections(&self) -> Result<Vec<ChaosInjectionRecord>> {
+        Ok(sqlx::query_as::<_, ChaosInjectionRecord>(
+            "SELECT * FROM chaos_injections ORDER BY started_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn update_chaos_injection_status(
+        &self,
+        id: &str,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE chaos_injections SET status = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), error = ? WHERE id = ?",
+        )
+        .bind(status)
+        .bind(error)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_chaos_injection(&self, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM chaos_injections WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;

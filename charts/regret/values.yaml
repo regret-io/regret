@@ -24,3 +24,14 @@ adapterNamespace: ""  # defaults to release namespace
 
 # Pilot gRPC address for adapter registration (auto-configured)
 pilotGrpcAddr: ""
+
+# Studio (Next.js UI)
+studio:
+  image:
+    repository: regret/studio
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: NodePort
+    port: 3000
+    nodePort: 30080

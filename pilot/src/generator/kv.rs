@@ -17,6 +17,8 @@ pub struct BasicKvGenerator {
     /// Tracks sequence prefixes for sequence reads.
     sequence_prefixes: Vec<String>,
     op_counter: usize,
+    /// Next key index to put during warmup phase.
+    warmup_cursor: usize,
 }
 
 impl BasicKvGenerator {
@@ -28,6 +30,7 @@ impl BasicKvGenerator {
             index_keys: Vec::new(),
             sequence_prefixes: Vec::new(),
             op_counter: 0,
+            warmup_cursor: 0,
         }
     }
 
@@ -49,7 +52,18 @@ impl BasicKvGenerator {
     }
 
     /// Generate a single op based on the full workload weights.
+    /// During warmup, emits puts for all keys in the key space first.
     fn gen_op(&mut self) -> OriginOp {
+        // Warmup: put every key in the key space before random ops
+        if self.warmup_cursor < self.params.key_space.count {
+            let id = self.next_id();
+            let key = self.format_key(self.warmup_cursor);
+            let value = self.random_value();
+            self.versions.insert(key.clone(), 1);
+            self.warmup_cursor += 1;
+            return OriginOp::put(id, key, value);
+        }
+
         let id = self.next_id();
         let roll: f64 = self.rng.r#gen();
         let workload = self.params.resolved_workload();
@@ -123,10 +137,10 @@ impl BasicKvGenerator {
 
     fn gen_delete_range(&mut self, id: String) -> OriginOp {
         let ks = &self.params.key_space;
-        let a = self.rng.gen_range(0..ks.count);
-        let b = self.rng.gen_range(0..ks.count);
-        let lo = a.min(b);
-        let hi = a.max(b) + 1;
+        let lo = self.rng.gen_range(0..ks.count);
+        // Cap range to at most 5 keys to avoid wiping large chunks of data
+        let span = self.rng.gen_range(1..=5.min(ks.count));
+        let hi = (lo + span).min(ks.count);
         let start = self.format_key(lo);
         let end = self.format_key(hi);
 
@@ -252,7 +266,7 @@ impl BasicKvGenerator {
 
     fn gen_list(&mut self, id: String) -> OriginOp {
         let ks = &self.params.key_space;
-        OriginOp::list(id, ks.prefix.clone(), format!("{}\u{ffff}", ks.prefix))
+        OriginOp::list(id, ks.prefix.clone(), format!("{}~", ks.prefix))
     }
 
     fn gen_indexed_get(&mut self, id: String) -> OriginOp {

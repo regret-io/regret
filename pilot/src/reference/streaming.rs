@@ -146,10 +146,6 @@ impl ReferenceModel for BasicStreamingReference {
                                 expected: Some(RecordState {
                                     value: None,
                                     version_id: expected_count,
-                                    metadata: HashMap::from([(
-                                        "message_count".to_string(),
-                                        expected_count.to_string(),
-                                    )]),
                                 }),
                                 actual: Some(record),
                             });
@@ -161,10 +157,6 @@ impl ReferenceModel for BasicStreamingReference {
                             expected: Some(RecordState {
                                 value: None,
                                 version_id: expected_count,
-                                metadata: HashMap::from([(
-                                    "message_count".to_string(),
-                                    expected_count.to_string(),
-                                )]),
                             }),
                             actual: None,
                         });
@@ -191,10 +183,6 @@ impl ReferenceModel for BasicStreamingReference {
                         .map(|msgs| RecordState {
                             value: None,
                             version_id: msgs.len() as u64,
-                            metadata: HashMap::from([(
-                                "message_count".to_string(),
-                                msgs.len().to_string(),
-                            )]),
                         })
                 });
                 (k.clone(), state)

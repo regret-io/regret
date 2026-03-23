@@ -21,3 +21,7 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+  # Exec into pods for chaos injection (network chaos via tc/iptables)
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]

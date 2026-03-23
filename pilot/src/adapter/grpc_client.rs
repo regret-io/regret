@@ -67,7 +67,7 @@ impl AdapterClient for GrpcAdapterClient {
                 Some(bytes) => {
                     let value = String::from_utf8_lossy(&bytes).to_string();
                     let vid = record.metadata.get("version_id").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-                    Some(RecordState { value: Some(value), version_id: vid, metadata: record.metadata })
+                    Some(RecordState { value: Some(value), version_id: vid })
                 }
                 None => None,
             };

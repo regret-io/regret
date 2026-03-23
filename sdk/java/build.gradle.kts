@@ -14,6 +14,10 @@ java {
     }
 }
 
+tasks.withType<JavaCompile> {
+    options.compilerArgs.add("-parameters")
+}
+
 val grpcVersion = "1.72.0"
 val protobufVersion = "4.31.1"
 

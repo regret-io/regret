@@ -7,7 +7,7 @@ export interface Hypothesis {
   adapter?: string;
   adapter_addr?: string;
   duration?: string;
-  checkpoint_every?: number;
+  checkpoint_every?: string;
   tolerance?: Record<string, unknown>;
   status: "idle" | "running" | "passed" | "failed" | "stopped";
   created_at: string;
@@ -92,7 +92,7 @@ export async function createHypothesis(body: {
   adapter?: string;
   adapter_addr?: string;
   duration?: string;
-  checkpoint_every?: number;
+  checkpoint_every?: string;
   tolerance?: Record<string, unknown>;
 }): Promise<Hypothesis> {
   return request<Hypothesis>("/api/hypothesis", {
@@ -123,8 +123,8 @@ export async function getStatus(id: string): Promise<StatusResponse> {
   return request<StatusResponse>(`/api/hypothesis/${id}/status`);
 }
 
-export async function getEvents(id: string): Promise<string> {
-  const res = await fetch(`/api/hypothesis/${id}/events`);
+export async function getEvents(id: string, last = 100): Promise<string> {
+  const res = await fetch(`/api/hypothesis/${id}/events?last=${last}`);
   return res.text();
 }
 
@@ -212,4 +212,90 @@ export async function createAdapter(body: {
 
 export async function deleteAdapter(id: string): Promise<void> {
   return request<void>(`/api/adapters/${id}`, { method: "DELETE" });
+}
+
+// --- Chaos Scenarios ---
+
+export interface ChaosAction {
+  type: string;
+  selector?: {
+    match_labels?: Record<string, string>;
+    mode?: string;
+    percentage?: number;
+    count?: number;
+  };
+  target_pod?: string;
+  interval?: string;
+  at?: string;
+  duration?: string;
+  params?: Record<string, unknown>;
+}
+
+export interface ChaosScenario {
+  id: string;
+  name: string;
+  namespace: string;
+  actions: ChaosAction[];
+  created_at: string;
+}
+
+export interface ChaosInjection {
+  id: string;
+  scenario_id: string;
+  scenario_name: string;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  error: string | null;
+}
+
+export async function listChaosScenarios(): Promise<ChaosScenario[]> {
+  const data = await request<{ items: ChaosScenario[] }>("/api/chaos/scenarios");
+  return data.items;
+}
+
+export async function createChaosScenario(body: {
+  name: string;
+  namespace?: string;
+  actions: ChaosAction[];
+}): Promise<ChaosScenario> {
+  return request<ChaosScenario>("/api/chaos/scenarios", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getChaosScenario(id: string): Promise<ChaosScenario> {
+  return request<ChaosScenario>(`/api/chaos/scenarios/${id}`);
+}
+
+export async function updateChaosScenario(
+  id: string,
+  body: { name: string; namespace?: string; actions: ChaosAction[] }
+): Promise<ChaosScenario> {
+  return request<ChaosScenario>(`/api/chaos/scenarios/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteChaosScenario(id: string): Promise<void> {
+  return request<void>(`/api/chaos/scenarios/${id}`, { method: "DELETE" });
+}
+
+export async function startChaosInjection(scenarioId: string): Promise<{ injection_id: string }> {
+  return request(`/api/chaos/scenarios/${scenarioId}/inject`, { method: "POST", body: "{}" });
+}
+
+export async function stopChaosInjection(injectionId: string): Promise<void> {
+  return request<void>(`/api/chaos/injections/${injectionId}/stop`, { method: "POST", body: "{}" });
+}
+
+export async function listChaosInjections(): Promise<ChaosInjection[]> {
+  const data = await request<{ items: ChaosInjection[] }>("/api/chaos/injections");
+  return data.items;
+}
+
+export async function deleteChaosInjection(id: string): Promise<void> {
+  return request<void>(`/api/chaos/injections/${id}`, { method: "DELETE" });
 }

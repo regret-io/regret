@@ -1,4 +1,6 @@
 pub mod adapters;
+pub mod auth;
+pub mod chaos;
 pub mod error;
 pub mod generators;
 pub mod health;
@@ -10,8 +12,8 @@ use axum::Router;
 
 use crate::app_state::AppState;
 
-pub fn router(state: AppState) -> Router {
-    Router::new()
+pub fn router(state: AppState, auth_password: Option<String>) -> Router {
+    let mut app = Router::new()
         // Hypothesis CRUD
         .route("/api/hypothesis", post(hypothesis::create))
         .route("/api/hypothesis", get(hypothesis::list))
@@ -38,8 +40,33 @@ pub fn router(state: AppState) -> Router {
         .route("/api/generators/{name}", get(generators::get_one))
         .route("/api/generators/{name}", put(generators::update))
         .route("/api/generators/{name}", delete(generators::delete))
+        // Chaos — Scenarios
+        .route("/api/chaos/scenarios", post(chaos::create_scenario))
+        .route("/api/chaos/scenarios", get(chaos::list_scenarios))
+        .route("/api/chaos/scenarios/{id}", get(chaos::get_scenario))
+        .route("/api/chaos/scenarios/{id}", put(chaos::update_scenario))
+        .route("/api/chaos/scenarios/{id}", delete(chaos::delete_scenario))
+        // Chaos — Injections
+        .route("/api/chaos/scenarios/{id}/inject", post(chaos::start_injection))
+        .route("/api/chaos/injections", get(chaos::list_injections))
+        .route("/api/chaos/injections/{id}", get(chaos::get_injection))
+        .route("/api/chaos/injections/{id}", delete(chaos::delete_injection))
+        .route("/api/chaos/injections/{id}/stop", post(chaos::stop_injection))
+        // Chaos — Events
+        .route("/api/chaos/events", get(chaos::chaos_events))
         // Health
         .route("/health", get(health::health))
         .route("/metrics", get(health::metrics))
-        .with_state(state)
+        .with_state(state);
+
+    // Apply basic auth middleware if password is configured
+    if let Some(password) = auth_password {
+        let pw = auth::AuthPassword(password);
+        app = app.layer(axum::middleware::from_fn(move |req, next| {
+            let pw = pw.clone();
+            auth::basic_auth_check(req, next, pw)
+        }));
+    }
+
+    app
 }

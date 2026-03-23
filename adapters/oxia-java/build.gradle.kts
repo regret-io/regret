@@ -12,6 +12,10 @@ java {
     }
 }
 
+tasks.withType<JavaCompile> {
+    options.compilerArgs.add("-parameters")
+}
+
 dependencies {
     implementation(project(":sdk:java"))
     implementation("io.streamnative.oxia:oxia-client:0.4.11")

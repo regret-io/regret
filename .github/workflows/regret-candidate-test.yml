@@ -1,0 +1,79 @@
+name: Regret Candidate Release Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_image:
+        description: 'Candidate image (e.g. streamnative/oxia:v0.5.0-rc1)'
+        required: true
+      stable_image:
+        description: 'Stable image to downgrade to (e.g. streamnative/oxia:v0.4.0)'
+        required: true
+      regret_api:
+        description: 'Regret API URL (e.g. http://regret.regret-system:8080)'
+        required: true
+      duration:
+        description: 'Test duration (e.g. 3h, 1h, 30m)'
+        default: '3h'
+      adapter_addr:
+        description: 'Oxia adapter gRPC address'
+        default: 'http://oxia-adapter:9090'
+
+  workflow_call:
+    inputs:
+      candidate_image:
+        type: string
+        required: true
+      stable_image:
+        type: string
+        required: true
+      regret_api:
+        type: string
+        required: true
+      duration:
+        type: string
+        default: '3h'
+      adapter_addr:
+        type: string
+        default: 'http://oxia-adapter:9090'
+
+jobs:
+  candidate-test:
+    name: Correctness Test (${{ inputs.duration }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 240  # 4h max
+
+    steps:
+      - name: Checkout regret
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq curl
+
+      - name: Run candidate release test
+        run: |
+          ./scripts/regret-ci.sh \
+            --api "${{ inputs.regret_api }}" \
+            --candidate-image "${{ inputs.candidate_image }}" \
+            --stable-image "${{ inputs.stable_image }}" \
+            --duration "${{ inputs.duration }}" \
+            --adapter-addr "${{ inputs.adapter_addr }}"
+
+      - name: Report result
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "### ✅ Candidate Release Passed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Candidate:** \`${{ inputs.candidate_image }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Duration:** ${{ inputs.duration }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Generators:** basic-kv, kv-cas, kv-ephemeral, kv-secondary-index, kv-sequence" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Candidate Release Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Candidate:** \`${{ inputs.candidate_image }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Duration:** ${{ inputs.duration }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the Regret Studio UI for detailed event logs and safety violations." >> $GITHUB_STEP_SUMMARY
+          fi
