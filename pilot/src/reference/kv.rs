@@ -385,15 +385,22 @@ impl ReferenceModel for BasicKvReference {
 
         let mut failures = Vec::new();
 
-        // Build expected map
+        // Build expected map (keep ephemeral flag for tolerance)
+        let expected_entries: HashMap<String, &RefEntry> = expected_all
+            .iter()
+            .map(|(k, e)| (k.clone(), e))
+            .collect();
+
         let expected_map: HashMap<String, RecordState> = expected_all
-            .into_iter()
-            .map(|(k, e)| (k, RecordState { value: Some(e.value), version_id: e.version }))
+            .iter()
+            .map(|(k, e)| (k.clone(), RecordState { value: Some(e.value.clone()), version_id: e.version }))
             .collect();
 
         // Check all expected keys exist in actual
         for (key, exp_state) in &expected_map {
             let act = actual_state.get(key).cloned().flatten();
+            let is_ephemeral = expected_entries.get(key).map(|e| e.ephemeral).unwrap_or(false);
+
             match act {
                 Some(act_state) => {
                     let value_mismatch = exp_state.value != act_state.value;
@@ -407,11 +414,17 @@ impl ReferenceModel for BasicKvReference {
                     }
                 }
                 None => {
-                    failures.push(CheckpointFailure {
-                        key: key.clone(),
-                        expected: Some(exp_state.clone()),
-                        actual: None,
-                    });
+                    // Ephemeral keys may be gone after session restart — not a failure
+                    if !is_ephemeral {
+                        failures.push(CheckpointFailure {
+                            key: key.clone(),
+                            expected: Some(exp_state.clone()),
+                            actual: None,
+                        });
+                    } else {
+                        // Clean up reference — key is confirmed gone
+                        let _ = self.rocks.ref_delete(key);
+                    }
                 }
             }
         }
