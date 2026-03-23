@@ -1,6 +1,8 @@
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use crate::storage::rocks::RocksStore;
+
 use super::GenerateParams;
 use super::types::OriginOp;
 
@@ -11,6 +13,8 @@ const KEY_PADDING: usize = 20;
 pub struct BasicKvGenerator {
     rng: StdRng,
     params: GenerateParams,
+    /// Optional RocksStore for CAS version lookups.
+    rocks: Option<RocksStore>,
     /// Tracks index keys for secondary index reads.
     index_keys: Vec<String>,
     /// Tracks sequence prefixes for sequence reads.
@@ -25,11 +29,17 @@ impl BasicKvGenerator {
         Self {
             rng: StdRng::seed_from_u64(params.seed),
             params: params.clone(),
+            rocks: None,
             index_keys: Vec::new(),
             sequence_prefixes: Vec::new(),
             op_counter: 0,
             warmup_cursor: 0,
         }
+    }
+
+    pub fn with_rocks(mut self, rocks: RocksStore) -> Self {
+        self.rocks = Some(rocks);
+        self
     }
 
     pub fn generate(mut self) -> Vec<OriginOp> {
@@ -85,6 +95,7 @@ impl BasicKvGenerator {
                     "list" => self.gen_list(id),
                     "range_scan" => self.gen_range_scan(id),
                     "cas" => self.gen_cas(id),
+                    "cas_stale" => self.gen_cas_stale(id),
                     "ephemeral_put" => self.gen_ephemeral_put(id),
                     "indexed_put" => self.gen_indexed_put(id),
                     "indexed_get" => self.gen_indexed_get(id),
@@ -121,11 +132,37 @@ impl BasicKvGenerator {
     }
 
     fn gen_cas(&mut self, id: String) -> OriginOp {
-        // CAS needs a known version — use version 0 (create) or random
         let key = self.random_key();
         let new_value = self.random_value();
-        // We don't track versions anymore — CAS with expected_version_id=0 means "create if not exists"
-        OriginOp::cas(id, key, 0, new_value)
+        // Look up current version from RocksDB for correct CAS
+        let current_version = if let Some(rocks) = &self.rocks {
+            rocks.ref_get(&key).ok().flatten().map(|e| e.version).unwrap_or(0)
+        } else {
+            0
+        };
+        // If key doesn't exist in reference yet (version=0), fall back to put
+        if current_version == 0 {
+            return OriginOp::put(id, key, new_value);
+        }
+        OriginOp::cas(id, key, current_version, new_value)
+    }
+
+    /// Generate a CAS with an intentionally stale/wrong version.
+    fn gen_cas_stale(&mut self, id: String) -> OriginOp {
+        let key = self.random_key();
+        let new_value = self.random_value();
+        let current_version = if let Some(rocks) = &self.rocks {
+            rocks.ref_get(&key).ok().flatten().map(|e| e.version).unwrap_or(0)
+        } else {
+            0
+        };
+        // If key doesn't exist in reference yet, fall back to put
+        if current_version == 0 {
+            return OriginOp::put(id, key, new_value);
+        }
+        // Use a wrong version: current-1 (stale)
+        let stale_version = current_version - 1;
+        OriginOp::cas(id, key, stale_version, new_value)
     }
 
     fn gen_ephemeral_put(&mut self, id: String) -> OriginOp {

@@ -75,9 +75,12 @@ fn basic_kv() -> HashMap<String, f64> {
 
 fn kv_cas() -> HashMap<String, f64> {
     HashMap::from([
-        ("put".into(), 0.35), ("cas".into(), 0.20), ("delete".into(), 0.10),
-        ("delete_range".into(), 0.05), ("get".into(), 0.15),
-        ("range_scan".into(), 0.05), ("list".into(), 0.05),
+        ("cas".into(), 0.40),
+        ("cas_stale".into(), 0.20),
+        ("get".into(), 0.20),
+        ("put".into(), 0.10),
+        ("range_scan".into(), 0.05),
+        ("list".into(), 0.05),
     ])
 }
 

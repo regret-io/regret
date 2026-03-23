@@ -126,6 +126,7 @@ impl HypothesisManager {
             progress: progress.clone(),
             files: self.shared.files.clone(),
             sqlite: self.shared.sqlite.clone(),
+            rocks: Some(self.shared.rocks.clone()),
             adapter_client,
         };
 

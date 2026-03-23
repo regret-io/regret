@@ -40,11 +40,13 @@ impl BasicKvReference {
     }
 
     /// Apply a successful write to the reference state.
-    fn apply_write(&self, op: &Operation) {
+    /// Uses the adapter's returned version_id when available (for accurate CAS tracking).
+    fn apply_write(&self, op: &Operation, adapter_version: Option<u64>) {
         match &op.kind {
             OpKind::Put { key, value } => {
-                let version = self.rocks.ref_get(key).ok().flatten()
-                    .map(|e| e.version + 1).unwrap_or(1);
+                let version = adapter_version.unwrap_or_else(|| {
+                    self.rocks.ref_get(key).ok().flatten().map(|e| e.version + 1).unwrap_or(1)
+                });
                 let _ = self.rocks.ref_put(key, &RefEntry { value: value.clone(), version });
             }
             OpKind::Delete { key } => {
@@ -59,18 +61,21 @@ impl BasicKvReference {
                 }
             }
             OpKind::Cas { key, new_value, .. } => {
-                let version = self.rocks.ref_get(key).ok().flatten()
-                    .map(|e| e.version + 1).unwrap_or(1);
+                let version = adapter_version.unwrap_or_else(|| {
+                    self.rocks.ref_get(key).ok().flatten().map(|e| e.version + 1).unwrap_or(1)
+                });
                 let _ = self.rocks.ref_put(key, &RefEntry { value: new_value.clone(), version });
             }
             OpKind::EphemeralPut { key, value } => {
-                let version = self.rocks.ref_get(key).ok().flatten()
-                    .map(|e| e.version + 1).unwrap_or(1);
+                let version = adapter_version.unwrap_or_else(|| {
+                    self.rocks.ref_get(key).ok().flatten().map(|e| e.version + 1).unwrap_or(1)
+                });
                 let _ = self.rocks.ref_put(key, &RefEntry { value: value.clone(), version });
             }
             OpKind::IndexedPut { key, value, .. } => {
-                let version = self.rocks.ref_get(key).ok().flatten()
-                    .map(|e| e.version + 1).unwrap_or(1);
+                let version = adapter_version.unwrap_or_else(|| {
+                    self.rocks.ref_get(key).ok().flatten().map(|e| e.version + 1).unwrap_or(1)
+                });
                 let _ = self.rocks.ref_put(key, &RefEntry { value: value.clone(), version });
             }
             OpKind::SequencePut { .. } => {
@@ -154,6 +159,19 @@ impl BasicKvReference {
                             expected: format!("value={}", entry.value),
                             actual: format!("value={}", actual_value),
                         });
+                    }
+                }
+                // Check version (when not ignored, e.g. kv-cas)
+                if !ignore_version {
+                    if let Some(actual_version) = result.version_id {
+                        if actual_version != entry.version {
+                            return Some(SafetyViolation {
+                                op_id: op.id.clone(),
+                                op: format!("get_{}", comparison_str(comparison)),
+                                expected: format!("version={}", entry.version),
+                                actual: format!("version={}", actual_version),
+                            });
+                        }
                     }
                 }
                 None
@@ -278,6 +296,35 @@ impl ReferenceModel for BasicKvReference {
 
             let parsed_status = OpStatus::from_str(&result.status).ok();
 
+            // CAS verification — check version consistency before applying
+            if let OpKind::Cas { key, expected_version_id, .. } = &op.kind {
+                let current = self.rocks.ref_get(key).ok().flatten();
+                let current_version = current.as_ref().map(|e| e.version).unwrap_or(0);
+                let version_matches = current_version == *expected_version_id;
+
+                match parsed_status {
+                    Some(OpStatus::Ok) if !version_matches => {
+                        // Adapter accepted CAS but version didn't match — violation
+                        failures.push(SafetyViolation {
+                            op_id: op.id.clone(),
+                            op: "cas".to_string(),
+                            expected: format!("version_mismatch (ref_version={} expected={})", current_version, expected_version_id),
+                            actual: "ok".to_string(),
+                        });
+                    }
+                    Some(OpStatus::VersionMismatch) if version_matches => {
+                        // Adapter rejected CAS but version should have matched — violation
+                        failures.push(SafetyViolation {
+                            op_id: op.id.clone(),
+                            op: "cas".to_string(),
+                            expected: format!("ok (ref_version={} expected={})", current_version, expected_version_id),
+                            actual: "version_mismatch".to_string(),
+                        });
+                    }
+                    _ => {} // Expected behavior
+                }
+            }
+
             let is_write = matches!(
                 op.kind,
                 OpKind::Put { .. } | OpKind::Delete { .. } | OpKind::DeleteRange { .. }
@@ -286,7 +333,7 @@ impl ReferenceModel for BasicKvReference {
             );
 
             if is_write && parsed_status == Some(OpStatus::Ok) {
-                self.apply_write(op);
+                self.apply_write(op, result.version_id);
             }
 
             let is_read = matches!(

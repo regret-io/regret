@@ -12,6 +12,7 @@ use crate::reference::{
     RecordState, ReferenceModel, Tolerance,
 };
 use crate::storage::files::FileStore;
+use crate::storage::rocks::RocksStore;
 use crate::storage::sqlite::{HypothesisResult, SqliteStore};
 use crate::types::{HypothesisStatus, OpType};
 
@@ -102,6 +103,7 @@ pub struct Executor {
     pub progress: Arc<RwLock<ProgressInfo>>,
     pub files: FileStore,
     pub sqlite: SqliteStore,
+    pub rocks: Option<RocksStore>,
     pub adapter_client: Option<Box<dyn AdapterClient>>,
 }
 
@@ -167,6 +169,9 @@ impl Executor {
         // Update key prefix to include run_id, then create generator
         self.generate_params.key_space.prefix = format!("/ref/{}/{}/", self.hypothesis_id, self.run_id);
         let mut generator = crate::generator::kv::BasicKvGenerator::new(&self.generate_params);
+        if let Some(rocks) = &self.rocks {
+            generator = generator.with_rocks(rocks.clone());
+        }
         let run_start = Instant::now();
         let duration_secs = self.config.duration_secs.unwrap_or(0);
 
