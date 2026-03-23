@@ -253,7 +253,7 @@ impl Executor {
                             op_type: op_type_str(&op.kind),
                             payload: op_payload(&op.kind),
                             status: res.status.clone(),
-                            response: op_response(res),
+                            response: op_response_brief(res),
                             expected: None,
                             actual: None,
                             verified: None,

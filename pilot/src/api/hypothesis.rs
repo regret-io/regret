@@ -89,15 +89,21 @@ pub async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Re
         let mut mgr = manager.lock().await;
         if mgr.is_running() { mgr.stop_run().await?; }
     }
-    let adapters = state.sqlite.list_adapters_all().await?;
-    let key_prefix = format!("/{id}/");
-    for adapter in &adapters {
-        let _ = GrpcAdapterClient::cleanup_prefix(&format!("{}:9090", adapter.name), &key_prefix).await;
-    }
     state.managers.remove(&id).await;
     state.sqlite.delete_hypothesis(&id).await?;
     let _ = state.rocks.drop_cf(&id);
     let _ = state.files.delete_hypothesis_dir(&id);
+
+    // Cleanup adapter data in background (don't block the response)
+    let adapters = state.sqlite.list_adapters_all().await.unwrap_or_default();
+    let key_prefix = format!("/{id}/");
+    tokio::spawn(async move {
+        for adapter in &adapters {
+            let addr = format!("http://adapter-{}:9090", adapter.name);
+            let _ = GrpcAdapterClient::cleanup_prefix(&addr, &key_prefix).await;
+        }
+    });
+
     Ok(StatusCode::NO_CONTENT)
 }
 
