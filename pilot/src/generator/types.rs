@@ -200,4 +200,16 @@ impl OriginOp {
     pub fn sequence_put(id: String, prefix: String, value: String, delta: u64) -> Self {
         OriginOp::Operation(OperationOp { id, op: "sequence_put".to_string(), fields: OpFields::SequencePut { prefix, value, delta } })
     }
+
+    pub fn watch_start(id: String, prefix: String) -> Self {
+        OriginOp::Operation(OperationOp { id, op: "watch_start".to_string(), fields: OpFields::Get { key: prefix } })
+    }
+
+    pub fn session_restart(id: String) -> Self {
+        OriginOp::Operation(OperationOp { id, op: "session_restart".to_string(), fields: OpFields::Get { key: String::new() } })
+    }
+
+    pub fn get_notifications(id: String) -> Self {
+        OriginOp::Operation(OperationOp { id, op: "get_notifications".to_string(), fields: OpFields::Get { key: String::new() } })
+    }
 }

@@ -102,6 +102,9 @@ impl BasicKvGenerator {
                     "indexed_list" => self.gen_indexed_list(id),
                     "indexed_range_scan" => self.gen_indexed_range_scan(id),
                     "sequence_put" => self.gen_sequence_put(id),
+                    "watch_start" => self.gen_watch_start(id),
+                    "session_restart" => self.gen_session_restart(id),
+                    "get_notifications" => self.gen_get_notifications(id),
                     _ => self.gen_put(id),
                 };
             }
@@ -260,6 +263,20 @@ impl BasicKvGenerator {
         let lo = a.min(b);
         let hi = a.max(b) + 1;
         OriginOp::indexed_range_scan(id, idx.name.clone(), format!("idx-{lo:04}"), format!("idx-{hi:04}"))
+    }
+
+    // ── Session & notification ops ──
+
+    fn gen_watch_start(&mut self, id: String) -> OriginOp {
+        OriginOp::watch_start(id, self.params.key_space.prefix.clone())
+    }
+
+    fn gen_session_restart(&mut self, id: String) -> OriginOp {
+        OriginOp::session_restart(id)
+    }
+
+    fn gen_get_notifications(&mut self, id: String) -> OriginOp {
+        OriginOp::get_notifications(id)
     }
 
     // ── Helpers ──

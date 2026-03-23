@@ -12,6 +12,8 @@ type RocksDB = DBWithThreadMode<MultiThreaded>;
 pub struct RefEntry {
     pub value: String,
     pub version: u64,
+    #[serde(default)]
+    pub ephemeral: bool,
 }
 
 #[derive(Clone)]

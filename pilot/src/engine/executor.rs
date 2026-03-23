@@ -349,7 +349,7 @@ impl Executor {
                 if reads.len() >= self.config.batch_size {
                     batches.push(std::mem::take(&mut reads));
                 }
-            } else if matches!(op.kind, OpKind::DeleteRange { .. }) {
+            } else if matches!(op.kind, OpKind::DeleteRange { .. } | OpKind::SessionRestart | OpKind::WatchStart { .. }) {
                 // Flush everything, then delete_range alone
                 if !writes.is_empty() {
                     batches.push(std::mem::take(&mut writes));
@@ -434,6 +434,7 @@ impl Executor {
                     OpKind::IndexedList { .. } => (OpStatus::Ok, OpType::IndexedList),
                     OpKind::IndexedRangeScan { .. } => (OpStatus::Ok, OpType::IndexedRangeScan),
                     OpKind::SequencePut { .. } => (OpStatus::Ok, OpType::SequencePut),
+                    OpKind::WatchStart { .. } | OpKind::SessionRestart | OpKind::GetNotifications => (OpStatus::Ok, OpType::Get),
                     OpKind::Fence => return None,
                 };
                 Some(AdapterOpResult {
@@ -441,7 +442,7 @@ impl Executor {
                     key: None, value: None, version_id: None,
                     records: if op_type == OpType::RangeScan { Some(vec![]) } else { None },
                     keys: if op_type == OpType::List { Some(vec![]) } else { None },
-                    deleted_count: None, message: None,
+                    deleted_count: None, notifications: None, message: None,
                 })
             })
             .collect()
@@ -468,7 +469,11 @@ fn op_type_str(kind: &OpKind) -> String {
         OpKind::EphemeralPut { .. } => "ephemeral_put", OpKind::IndexedPut { .. } => "indexed_put",
         OpKind::IndexedGet { .. } => "indexed_get", OpKind::IndexedList { .. } => "indexed_list",
         OpKind::IndexedRangeScan { .. } => "indexed_range_scan",
-        OpKind::SequencePut { .. } => "sequence_put", OpKind::Fence => "fence",
+        OpKind::SequencePut { .. } => "sequence_put",
+        OpKind::WatchStart { .. } => "watch_start",
+        OpKind::SessionRestart => "session_restart",
+        OpKind::GetNotifications => "get_notifications",
+        OpKind::Fence => "fence",
     }.to_string()
 }
 
@@ -487,6 +492,9 @@ fn op_payload(kind: &OpKind) -> serde_json::Value {
         OpKind::IndexedList { index_name, start, end } => serde_json::json!({"index_name": index_name, "start": start, "end": end}),
         OpKind::IndexedRangeScan { index_name, start, end } => serde_json::json!({"index_name": index_name, "start": start, "end": end}),
         OpKind::SequencePut { prefix, value, delta } => serde_json::json!({"prefix": prefix, "value": value, "delta": delta}),
+        OpKind::WatchStart { prefix } => serde_json::json!({"prefix": prefix}),
+        OpKind::SessionRestart => serde_json::json!({}),
+        OpKind::GetNotifications => serde_json::json!({}),
         OpKind::Fence => serde_json::json!({}),
     }
 }
@@ -501,7 +509,8 @@ fn op_key(kind: &OpKind) -> Option<String> {
         OpKind::List { .. } | OpKind::RangeScan { .. }
         | OpKind::IndexedGet { .. } | OpKind::IndexedList { .. }
         | OpKind::IndexedRangeScan { .. } => None, // reads don't conflict
-        OpKind::DeleteRange { .. } | OpKind::Fence => None,
+        OpKind::DeleteRange { .. } | OpKind::WatchStart { .. }
+        | OpKind::SessionRestart | OpKind::GetNotifications | OpKind::Fence => None,
     }
 }
 
@@ -569,6 +578,9 @@ fn parse_origin_op(json: &serde_json::Value) -> Option<Operation> {
         "indexed_list" => OpKind::IndexedList { index_name: json.get("index_name")?.as_str()?.to_string(), start: json.get("start")?.as_str()?.to_string(), end: json.get("end")?.as_str()?.to_string() },
         "indexed_range_scan" => OpKind::IndexedRangeScan { index_name: json.get("index_name")?.as_str()?.to_string(), start: json.get("start")?.as_str()?.to_string(), end: json.get("end")?.as_str()?.to_string() },
         "sequence_put" => OpKind::SequencePut { prefix: json.get("prefix")?.as_str()?.to_string(), value: json.get("value")?.as_str()?.to_string(), delta: json.get("delta")?.as_u64().unwrap_or(1) },
+        "watch_start" => OpKind::WatchStart { prefix: json.get("prefix")?.as_str()?.to_string() },
+        "session_restart" => OpKind::SessionRestart,
+        "get_notifications" => OpKind::GetNotifications,
         _ => return None,
     };
     Some(Operation { id, kind })

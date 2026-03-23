@@ -97,6 +97,7 @@ fn parse_op_result(r: proto::OpResult) -> AdapterOpResult {
         records: payload.get("records").and_then(|v| v.as_array().map(|arr| arr.iter().filter_map(|r| Some(RangeRecord { key: r.get("key")?.as_str()?.to_string(), value: r.get("value")?.as_str()?.to_string(), version_id: r.get("version_id")?.as_u64().unwrap_or(0) })).collect())),
         keys: payload.get("keys").and_then(|v| v.as_array().map(|arr| arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect())),
         deleted_count: payload.get("deleted_count").and_then(|v| v.as_u64()),
+        notifications: payload.get("notifications").and_then(|v| serde_json::from_value(v.clone()).ok()),
         message: if r.message.is_empty() { None } else { Some(r.message) },
     }
 }
@@ -125,6 +126,9 @@ fn serialize_op(kind: &OpKind) -> (String, Vec<u8>) {
         OpKind::IndexedList { index_name, start, end } => ("indexed_list".into(), serde_json::to_vec(&serde_json::json!({"index_name": index_name, "start": start, "end": end})).unwrap()),
         OpKind::IndexedRangeScan { index_name, start, end } => ("indexed_range_scan".into(), serde_json::to_vec(&serde_json::json!({"index_name": index_name, "start": start, "end": end})).unwrap()),
         OpKind::SequencePut { prefix, value, delta } => ("sequence_put".into(), serde_json::to_vec(&serde_json::json!({"prefix": prefix, "value": value, "delta": delta})).unwrap()),
+        OpKind::WatchStart { prefix } => ("watch_start".into(), serde_json::to_vec(&serde_json::json!({"prefix": prefix})).unwrap()),
+        OpKind::SessionRestart => ("session_restart".into(), vec![]),
+        OpKind::GetNotifications => ("get_notifications".into(), vec![]),
         OpKind::Fence => ("fence".into(), vec![]),
     }
 }

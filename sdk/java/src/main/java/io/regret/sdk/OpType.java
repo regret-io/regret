@@ -18,6 +18,7 @@ public enum OpType {
     INDEXED_LIST("indexed_list"),
     INDEXED_RANGE_SCAN("indexed_range_scan"),
     SEQUENCE_PUT("sequence_put"),
+    SESSION_RESTART("session_restart"),
     FENCE("fence");
 
     private final String value;

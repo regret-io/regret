@@ -30,6 +30,19 @@ pub struct RangeRecord {
     pub version_id: u64,
 }
 
+/// Notification received from the adapter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationRecord {
+    #[serde(rename = "type")]
+    pub notification_type: String, // KEY_CREATED, KEY_MODIFIED, KEY_DELETED, KEY_RANGE_DELETED
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub key_start: Option<String>,
+    #[serde(default)]
+    pub key_end: Option<String>,
+}
+
 /// A failure detected during verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SafetyViolation {
@@ -92,6 +105,8 @@ pub struct AdapterOpResult {
     #[serde(default)]
     pub deleted_count: Option<u64>,
     #[serde(default)]
+    pub notifications: Option<Vec<NotificationRecord>>,
+    #[serde(default)]
     pub message: Option<String>,
 }
 
@@ -136,6 +151,11 @@ pub enum OpKind {
 
     // Sequence keys
     SequencePut { prefix: String, value: String, delta: u64 },
+
+    // Session & notification control
+    WatchStart { prefix: String },
+    SessionRestart,
+    GetNotifications,
 
     // Synchronization barrier
     Fence,
