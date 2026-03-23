@@ -231,4 +231,98 @@ impl RocksStore {
         }
         Ok(results)
     }
+
+    // ── Secondary index reference ──
+
+    fn idx_key(index_name: &str, index_key: &str, primary_key: &str) -> String {
+        format!("__idx__\0{}\0{}\0{}", index_name, index_key, primary_key)
+    }
+
+    fn idx_prefix(index_name: &str) -> String {
+        format!("__idx__\0{}\0", index_name)
+    }
+
+    /// Store an index entry: indexName + indexKey → primaryKey.
+    pub fn idx_put(&self, index_name: &str, index_key: &str, primary_key: &str) -> Result<()> {
+        let key = Self::idx_key(index_name, index_key, primary_key);
+        let db = self.db.lock().unwrap();
+        db.put(key.as_bytes(), b"")?;
+        Ok(())
+    }
+
+    /// Remove all index entries for a given primary key across all index keys.
+    pub fn idx_delete_primary(&self, index_name: &str, primary_key: &str) -> Result<()> {
+        let prefix = Self::idx_prefix(index_name);
+        let db = self.db.lock().unwrap();
+        let mut to_delete = Vec::new();
+        let iter = db.prefix_iterator(prefix.as_bytes());
+        for item in iter {
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key).to_string();
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+            // key format: __idx__\0{indexName}\0{indexKey}\0{primaryKey}
+            if key_str.ends_with(&format!("\0{}", primary_key)) {
+                to_delete.push(key.to_vec());
+            }
+        }
+        for k in to_delete {
+            db.delete(&k)?;
+        }
+        Ok(())
+    }
+
+    /// List primary keys for an index key range [start, end).
+    /// Returns primary keys sorted by primary key (matching Oxia's behavior).
+    pub fn idx_list(&self, index_name: &str, start: &str, end: &str) -> Result<Vec<String>> {
+        let prefix = Self::idx_prefix(index_name);
+        let lower = format!("__idx__\0{}\0{}", index_name, start);
+        let upper = format!("__idx__\0{}\0{}", index_name, end);
+        let db = self.db.lock().unwrap();
+
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_lower_bound(lower.as_bytes());
+        opts.set_iterate_upper_bound(upper.as_bytes());
+
+        let mut primary_keys = Vec::new();
+        let iter = db.iterator_opt(IteratorMode::From(lower.as_bytes(), Direction::Forward), opts);
+        for item in iter {
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key).to_string();
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+            // Extract primary key from: __idx__\0{indexName}\0{indexKey}\0{primaryKey}
+            let parts: Vec<&str> = key_str.splitn(4, '\0').collect();
+            if parts.len() == 4 {
+                primary_keys.push(parts[3].to_string());
+            }
+        }
+        // Sort by primary key to match Oxia's list behavior
+        primary_keys.sort();
+        Ok(primary_keys)
+    }
+
+    /// Clear all index entries with a given index name.
+    pub fn idx_clear(&self, index_name: &str) -> Result<()> {
+        let prefix = Self::idx_prefix(index_name);
+        let db = self.db.lock().unwrap();
+        let keys_to_delete: Vec<Vec<u8>> = {
+            let iter = db.prefix_iterator(prefix.as_bytes());
+            let mut keys = Vec::new();
+            for item in iter {
+                let (key, _) = item?;
+                if !key.starts_with(prefix.as_bytes()) {
+                    break;
+                }
+                keys.push(key.to_vec());
+            }
+            keys
+        };
+        for key in keys_to_delete {
+            db.delete(&key)?;
+        }
+        Ok(())
+    }
 }
