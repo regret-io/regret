@@ -91,7 +91,58 @@ async fn main() -> Result<()> {
     let hypotheses = sqlite.list_hypotheses().await?;
     for h in &hypotheses {
         managers.create_from_hypothesis(&h.id, &h.generator, h.tolerance.clone()).await;
-        info!(id = %h.id, name = %h.name, "loaded hypothesis");
+        info!(id = %h.id, name = %h.name, status = %h.status, "loaded hypothesis");
+    }
+
+    // Auto-resume hypotheses that were running when pilot stopped
+    for h in &hypotheses {
+        if h.status != "running" {
+            continue;
+        }
+        info!(id = %h.id, name = %h.name, "auto-resuming running hypothesis");
+
+        let duration_secs = h.duration.as_ref().and_then(|d| {
+            let s = d.trim();
+            if s.ends_with('s') { s[..s.len()-1].parse().ok() }
+            else if s.ends_with('m') { s[..s.len()-1].parse::<u64>().ok().map(|m| m * 60) }
+            else if s.ends_with('h') { s[..s.len()-1].parse::<u64>().ok().map(|h| h * 3600) }
+            else { s.parse().ok() }
+        });
+        let checkpoint_interval_secs = {
+            let s = h.checkpoint_every.trim();
+            if s.ends_with('s') { s[..s.len()-1].parse().unwrap_or(600) }
+            else if s.ends_with('m') { s[..s.len()-1].parse::<u64>().map(|m| m * 60).unwrap_or(600) }
+            else if s.ends_with('h') { s[..s.len()-1].parse::<u64>().map(|h| h * 3600).unwrap_or(600) }
+            else { s.parse().unwrap_or(600) }
+        };
+
+        let exec_config = engine::executor::ExecutionConfig {
+            checkpoint_interval_secs,
+            duration_secs,
+            ..engine::executor::ExecutionConfig::default()
+        };
+
+        let adapter = if let Some(name) = &h.adapter {
+            sqlite.get_adapter_by_name(name).await.ok().flatten()
+        } else { None };
+
+        let mut gen_params = generator::GenerateParams {
+            generator: h.generator.clone(),
+            ops: usize::MAX,
+            ..generator::GenerateParams::default()
+        };
+        if let Ok(ks) = serde_json::from_str::<generator::KeySpaceConfig>(&h.key_space) {
+            gen_params.key_space = ks;
+        }
+        gen_params.key_space.prefix = format!("/{}/", h.id);
+
+        if let Some(mgr_arc) = managers.get(&h.id).await {
+            let mut mgr = mgr_arc.lock().await;
+            match mgr.start_run(exec_config, gen_params, adapter, h.adapter_addr.clone()).await {
+                Ok((run_id, _)) => info!(id = %h.id, run_id = %run_id, "hypothesis resumed"),
+                Err(e) => warn!(id = %h.id, error = %e, "failed to resume hypothesis"),
+            }
+        }
     }
 
     let chaos = ChaosRegistry::new(files.clone(), sqlite.clone(), managers.clone());
