@@ -104,6 +104,6 @@ jobs:
           file: adapters/oxia-java/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: regretio/adapter-oxia:latest
+          tags: regretio/adapter-oxia-java:latest
           cache-from: type=gha,scope=adapter
           cache-to: type=gha,scope=adapter,mode=max
