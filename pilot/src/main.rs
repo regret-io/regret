@@ -129,6 +129,7 @@ async fn main() -> Result<()> {
         let mut gen_params = generator::GenerateParams {
             generator: h.generator.clone(),
             ops: usize::MAX,
+            skip_warmup: h.generator.contains("notification"),
             ..generator::GenerateParams::default()
         };
         if let Ok(ks) = serde_json::from_str::<generator::KeySpaceConfig>(&h.key_space) {

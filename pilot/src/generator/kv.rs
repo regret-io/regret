@@ -63,7 +63,7 @@ impl BasicKvGenerator {
     /// During warmup, emits puts for all keys in the key space first.
     fn gen_op(&mut self) -> OriginOp {
         // Warmup: put every key in the key space before random ops
-        if self.warmup_cursor < self.params.key_space.count {
+        if !self.params.skip_warmup && self.warmup_cursor < self.params.key_space.count {
             let id = self.next_id();
             let key = self.format_key(self.warmup_cursor);
             let value = self.random_value();

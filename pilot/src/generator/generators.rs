@@ -5,11 +5,9 @@ pub fn get_generator(name: &str) -> HashMap<String, f64> {
     match name {
         "basic-kv" => basic_kv(),
         "kv-cas" => kv_cas(),
-        "kv-ephemeral" => kv_ephemeral(), // legacy alias
         "kv-ephemeral-notification" => kv_ephemeral_notification(),
         "kv-secondary-index" => kv_secondary_index(),
         "kv-sequence" => kv_sequence(),
-        "kv-full" => kv_full(),
         _ => basic_kv(),
     }
 }
@@ -28,11 +26,6 @@ pub fn list_generators() -> Vec<GeneratorInfo> {
             rate: 100,
         },
         GeneratorInfo {
-            name: "kv-ephemeral",
-            description: "Basic KV + ephemeral records (auto-deleted on session expiry)",
-            rate: 100,
-        },
-        GeneratorInfo {
             name: "kv-ephemeral-notification",
             description: "Ephemeral lifecycle + notification delivery verification",
             rate: 100,
@@ -45,11 +38,6 @@ pub fn list_generators() -> Vec<GeneratorInfo> {
         GeneratorInfo {
             name: "kv-sequence",
             description: "Sequence key puts with server-assigned monotonic suffixes + reads",
-            rate: 100,
-        },
-        GeneratorInfo {
-            name: "kv-full",
-            description: "All Oxia operations combined: basic KV + CAS + ephemeral + indexes + sequences",
             rate: 100,
         },
     ]
@@ -90,13 +78,6 @@ fn kv_cas() -> HashMap<String, f64> {
     ])
 }
 
-fn kv_ephemeral() -> HashMap<String, f64> {
-    HashMap::from([
-        ("put".into(), 0.30), ("ephemeral_put".into(), 0.25), ("delete".into(), 0.10),
-        ("get".into(), 0.20), ("range_scan".into(), 0.05), ("list".into(), 0.10),
-    ])
-}
-
 fn kv_ephemeral_notification() -> HashMap<String, f64> {
     // Mutations trigger notifications:
     //   ephemeral_put (new) → KEY_CREATED
@@ -133,13 +114,3 @@ fn kv_sequence() -> HashMap<String, f64> {
     ])
 }
 
-fn kv_full() -> HashMap<String, f64> {
-    HashMap::from([
-        ("put".into(), 0.20), ("cas".into(), 0.10), ("ephemeral_put".into(), 0.10),
-        ("indexed_put".into(), 0.10), ("sequence_put".into(), 0.05),
-        ("delete".into(), 0.08), ("delete_range".into(), 0.02),
-        ("get".into(), 0.12), ("indexed_get".into(), 0.08),
-        ("range_scan".into(), 0.05), ("indexed_range_scan".into(), 0.03),
-        ("list".into(), 0.04), ("indexed_list".into(), 0.03),
-    ])
-}

@@ -241,11 +241,24 @@ impl Executor {
                 let start = Instant::now();
 
                 let failures = if let Some(client) = &self.adapter_client {
-                    let results = match client.execute_batch(&batch_id, batch).await {
-                        Ok(r) => r,
-                        Err(e) => {
-                            self.emit_event(Event::batch_failed(&self.run_id, &batch_id, 1, &e.to_string()));
-                            return Ok(StopReason::Error(e.to_string()));
+                    let mut last_err = String::new();
+                    let mut results = None;
+                    for attempt in 1..=3u32 {
+                        match client.execute_batch(&batch_id, batch).await {
+                            Ok(r) => { results = Some(r); break; }
+                            Err(e) => {
+                                last_err = e.to_string();
+                                if attempt < 3 {
+                                    tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
+                                }
+                            }
+                        }
+                    }
+                    let results = match results {
+                        Some(r) => r,
+                        None => {
+                            self.emit_event(Event::batch_failed(&self.run_id, &batch_id, 3, &last_err));
+                            return Ok(StopReason::Error(last_err));
                         }
                     };
                     let duration_ms = start.elapsed().as_millis() as u64;

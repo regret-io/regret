@@ -132,9 +132,11 @@ pub async fn start_run(
             .ok_or_else(|| ApiError::NotFound(format!("adapter '{name}' not found")))?)
     } else { None };
 
+    let skip_warmup = hypothesis.generator.contains("notification");
     let mut gen_params = crate::generator::GenerateParams {
         generator: hypothesis.generator.clone(),
         ops: usize::MAX,
+        skip_warmup,
         ..crate::generator::GenerateParams::default()
     };
     // Apply stored key_space config (e.g. count)

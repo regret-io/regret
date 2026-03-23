@@ -47,6 +47,11 @@ pub struct GenerateParams {
     /// Target ops/sec rate. 0 = unlimited. Can be overridden per run.
     #[serde(default)]
     pub rate: u32,
+
+    /// Skip the warmup phase (pre-populating all keys). Useful for notification
+    /// generators where warmup floods the notification buffer.
+    #[serde(default)]
+    pub skip_warmup: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,6 +136,7 @@ impl Default for GenerateParams {
             value: ValueConfig::default(),
             index: IndexConfig::default(),
             rate: 0,
+            skip_warmup: false,
         }
     }
 }
