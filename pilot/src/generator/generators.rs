@@ -18,27 +18,27 @@ pub fn list_generators() -> Vec<GeneratorInfo> {
         GeneratorInfo {
             name: "basic-kv",
             description: "Basic key-value operations: put, get, delete, delete_range, list, range_scan",
-            rate: 100,
+            rate: 258,
         },
         GeneratorInfo {
             name: "kv-cas",
             description: "Basic KV + compare-and-swap (versioned conditional writes)",
-            rate: 100,
+            rate: 258,
         },
         GeneratorInfo {
             name: "kv-ephemeral-notification",
             description: "Ephemeral lifecycle + notification delivery verification",
-            rate: 100,
+            rate: 258,
         },
         GeneratorInfo {
             name: "kv-secondary-index",
             description: "Basic KV + secondary index operations (indexed put/get/list/range_scan)",
-            rate: 100,
+            rate: 258,
         },
         GeneratorInfo {
             name: "kv-sequence",
             description: "Sequence key puts with server-assigned monotonic suffixes + reads",
-            rate: 100,
+            rate: 258,
         },
     ]
 }
