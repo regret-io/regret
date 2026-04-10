@@ -22,7 +22,7 @@ pub fn list_generators() -> Vec<GeneratorInfo> {
         },
         GeneratorInfo {
             name: "kv-cas",
-            description: "Basic KV + compare-and-swap (versioned conditional writes)",
+            description: "CAS conflict correctness: duplicate put-with-version ops in each batch, verify exactly-one-wins invariant",
             rate: 258,
         },
         GeneratorInfo {
@@ -37,7 +37,7 @@ pub fn list_generators() -> Vec<GeneratorInfo> {
         },
         GeneratorInfo {
             name: "kv-sequence",
-            description: "Sequence key puts with server-assigned monotonic suffixes + reads",
+            description: "Sequence key puts with server-assigned monotonic suffixes + reads + subscription notifications",
             rate: 258,
         },
     ]
@@ -69,12 +69,7 @@ fn basic_kv() -> HashMap<String, f64> {
 
 fn kv_cas() -> HashMap<String, f64> {
     HashMap::from([
-        ("cas".into(), 0.40),
-        ("cas_stale".into(), 0.20),
-        ("get".into(), 0.20),
-        ("put".into(), 0.10),
-        ("range_scan".into(), 0.05),
-        ("list".into(), 0.05),
+        ("cas".into(), 1.0),
     ])
 }
 
@@ -109,8 +104,9 @@ fn kv_secondary_index() -> HashMap<String, f64> {
 
 fn kv_sequence() -> HashMap<String, f64> {
     HashMap::from([
-        ("sequence_put".into(), 0.50), ("put".into(), 0.10),
-        ("get".into(), 0.20), ("list".into(), 0.10), ("range_scan".into(), 0.10),
+        ("sequence_put".into(), 0.40), ("put".into(), 0.10),
+        ("get".into(), 0.15), ("list".into(), 0.10), ("range_scan".into(), 0.10),
+        ("get_notifications".into(), 0.10), ("session_restart".into(), 0.05),
     ])
 }
 
