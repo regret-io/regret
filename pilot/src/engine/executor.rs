@@ -189,10 +189,10 @@ impl Executor {
 
         // Update key prefix to include run_id, then create generator
         self.generate_params.key_space.prefix = format!("/ref/{}/{}/", self.hypothesis_id, self.run_id);
-        let mut generator = crate::generator::kv::BasicKvGenerator::new(&self.generate_params);
-        if let Some(rocks) = &self.rocks {
-            generator = generator.with_rocks(rocks.clone());
-        }
+        let mut generator = crate::generator::create_generator(
+            &self.generate_params,
+            self.rocks.clone(),
+        );
         let run_start = Instant::now();
         let duration_secs = self.config.duration_secs.unwrap_or(0);
 
@@ -359,9 +359,14 @@ impl Executor {
     /// Rules:
     /// - Writes and reads are never in the same batch
     /// - delete_range always gets its own batch
-    /// - No two write ops in a batch touch the same key
+    /// - No two write ops in a batch touch the same key (unless allow_key_conflicts)
     /// - Batch size capped at config.batch_size
+    ///
+    /// For kv-cas generator, key conflicts within a batch are intentional and
+    /// must be preserved — the whole point is testing the exactly-one-wins invariant.
     fn split_into_batches(&self, ops: &[Operation]) -> Vec<Vec<Operation>> {
+        let allow_key_conflicts = self.generate_params.generator == "kv-cas";
+
         let mut batches = Vec::new();
         let mut writes = Vec::new();
         let mut reads = Vec::new();
@@ -399,13 +404,15 @@ impl Executor {
                     batches.push(std::mem::take(&mut reads));
                 }
 
-                let key = op_key(&op.kind);
-                if let Some(k) = &key {
-                    if write_keys.contains(k.as_str()) {
-                        batches.push(std::mem::take(&mut writes));
-                        write_keys.clear();
+                if !allow_key_conflicts {
+                    let key = op_key(&op.kind);
+                    if let Some(k) = &key {
+                        if write_keys.contains(k.as_str()) {
+                            batches.push(std::mem::take(&mut writes));
+                            write_keys.clear();
+                        }
+                        write_keys.insert(k.clone());
                     }
-                    write_keys.insert(k.clone());
                 }
 
                 writes.push(op.clone());

@@ -1,5 +1,6 @@
-pub mod kv;
+pub mod cas;
 pub mod generators;
+pub mod kv;
 pub mod types;
 
 use std::collections::HashMap;
@@ -7,6 +8,45 @@ use std::io::{self, Write};
 
 use serde::{Deserialize, Serialize};
 use types::OriginOp;
+
+use crate::storage::rocks::RocksStore;
+
+/// Trait for all generators. Each generator produces batches of origin ops.
+pub trait Generator: Send {
+    fn gen_batch(&mut self, count: usize) -> Vec<OriginOp>;
+}
+
+impl Generator for kv::BasicKvGenerator {
+    fn gen_batch(&mut self, count: usize) -> Vec<OriginOp> {
+        self.gen_batch(count)
+    }
+}
+
+impl Generator for cas::CasGenerator {
+    fn gen_batch(&mut self, count: usize) -> Vec<OriginOp> {
+        self.gen_batch(count)
+    }
+}
+
+/// Create the appropriate generator for the given params.
+pub fn create_generator(params: &GenerateParams, rocks: Option<RocksStore>) -> Box<dyn Generator> {
+    match params.generator.as_str() {
+        "kv-cas" => {
+            let mut generator = cas::CasGenerator::new(params);
+            if let Some(rocks) = rocks {
+                generator = generator.with_rocks(rocks);
+            }
+            Box::new(generator)
+        }
+        _ => {
+            let mut generator = kv::BasicKvGenerator::new(params);
+            if let Some(rocks) = rocks {
+                generator = generator.with_rocks(rocks);
+            }
+            Box::new(generator)
+        }
+    }
+}
 
 /// Declarative workload profile for origin dataset generation.
 #[derive(Debug, Clone, Serialize, Deserialize)]

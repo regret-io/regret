@@ -452,6 +452,90 @@ impl BasicKvReference {
         }
         None
     }
+
+    /// Verify CAS batch invariant: for ops targeting the same key with the
+    /// current version, exactly 1 must succeed (Ok) and the rest must fail
+    /// (VersionMismatch). Stale-version ops must all fail.
+    fn verify_cas_batch(
+        &self,
+        ops: &[Operation],
+        response: &AdapterBatchResponse,
+    ) -> Vec<SafetyViolation> {
+        let mut failures = Vec::new();
+
+        // Group CAS ops by key
+        let mut cas_groups: HashMap<String, Vec<(usize, &Operation, &AdapterOpResult)>> = HashMap::new();
+        for (i, (op, result)) in ops.iter().zip(response.results.iter()).enumerate() {
+            if let OpKind::Cas { key, .. } = &op.kind {
+                cas_groups.entry(key.clone()).or_default().push((i, op, result));
+            }
+        }
+
+        for (key, group) in &cas_groups {
+            // Read reference version ONCE per key (before applying any writes)
+            let ref_version = self.rocks.ref_get(key).ok().flatten().map(|e| e.version).unwrap_or(0);
+
+            // Partition into current-version ops vs stale-version ops
+            let mut current_ops: Vec<&(usize, &Operation, &AdapterOpResult)> = Vec::new();
+            let mut stale_ops: Vec<&(usize, &Operation, &AdapterOpResult)> = Vec::new();
+
+            for entry in group {
+                if let OpKind::Cas { expected_version_id, .. } = &entry.1.kind {
+                    if *expected_version_id == ref_version {
+                        current_ops.push(entry);
+                    } else {
+                        stale_ops.push(entry);
+                    }
+                }
+            }
+
+            // Stale ops: ALL must be VersionMismatch
+            for (_, op, result) in &stale_ops {
+                let status = OpStatus::from_str(&result.status).ok();
+                if status != Some(OpStatus::VersionMismatch) {
+                    if let OpKind::Cas { expected_version_id, .. } = &op.kind {
+                        failures.push(SafetyViolation {
+                            op_id: op.id.clone(),
+                            op: "cas".to_string(),
+                            expected: format!("version_mismatch (stale: expected={} ref={})", expected_version_id, ref_version),
+                            actual: format!("status={}", result.status),
+                        });
+                    }
+                }
+            }
+
+            // Current-version ops: exactly 1 Ok, rest VersionMismatch
+            if !current_ops.is_empty() {
+                let ok_count = current_ops.iter()
+                    .filter(|(_, _, r)| OpStatus::from_str(&r.status).ok() == Some(OpStatus::Ok))
+                    .count();
+                let mismatch_count = current_ops.iter()
+                    .filter(|(_, _, r)| OpStatus::from_str(&r.status).ok() == Some(OpStatus::VersionMismatch))
+                    .count();
+
+                if ok_count != 1 {
+                    let first_op = current_ops[0].1;
+                    failures.push(SafetyViolation {
+                        op_id: first_op.id.clone(),
+                        op: "cas".to_string(),
+                        expected: format!("exactly 1 ok for key={} version={} ({} ops)", key, ref_version, current_ops.len()),
+                        actual: format!("{} ok, {} version_mismatch", ok_count, mismatch_count),
+                    });
+                }
+                if mismatch_count != current_ops.len() - 1 {
+                    let first_op = current_ops[0].1;
+                    failures.push(SafetyViolation {
+                        op_id: first_op.id.clone(),
+                        op: "cas".to_string(),
+                        expected: format!("{} version_mismatch for key={} version={}", current_ops.len() - 1, key, ref_version),
+                        actual: format!("{} ok, {} version_mismatch", ok_count, mismatch_count),
+                    });
+                }
+            }
+        }
+
+        failures
+    }
 }
 
 impl ReferenceModel for BasicKvReference {
@@ -463,6 +547,43 @@ impl ReferenceModel for BasicKvReference {
     ) -> Vec<SafetyViolation> {
         let mut failures = Vec::new();
 
+        // Check if this batch contains CAS conflict ops (multiple CAS ops for the same key)
+        let has_cas_conflicts = {
+            let mut cas_keys = std::collections::HashSet::new();
+            let mut has_dup = false;
+            for op in ops {
+                if let OpKind::Cas { key, .. } = &op.kind {
+                    if !cas_keys.insert(key.clone()) {
+                        has_dup = true;
+                        break;
+                    }
+                }
+            }
+            has_dup
+        };
+
+        if has_cas_conflicts {
+            // Batch-level CAS conflict verification
+            failures.extend(self.verify_cas_batch(ops, response));
+
+            // Apply winners to reference state
+            for (op, result) in ops.iter().zip(response.results.iter()) {
+                let parsed_status = OpStatus::from_str(&result.status).ok();
+                let is_write = matches!(
+                    op.kind,
+                    OpKind::Put { .. } | OpKind::Delete { .. } | OpKind::DeleteRange { .. }
+                    | OpKind::Cas { .. } | OpKind::EphemeralPut { .. }
+                    | OpKind::IndexedPut { .. } | OpKind::SequencePut { .. }
+                );
+                if is_write && parsed_status == Some(OpStatus::Ok) {
+                    self.apply_write(op, result.version_id, result.key.as_deref());
+                }
+            }
+
+            return failures;
+        }
+
+        // Non-conflict path: original per-op verification
         for (op, result) in ops.iter().zip(response.results.iter()) {
             if op.id != result.op_id {
                 continue;
@@ -470,7 +591,7 @@ impl ReferenceModel for BasicKvReference {
 
             let parsed_status = OpStatus::from_str(&result.status).ok();
 
-            // CAS verification — check version consistency before applying
+            // Single CAS verification (no conflicts in this batch)
             if let OpKind::Cas { key, expected_version_id, .. } = &op.kind {
                 let current = self.rocks.ref_get(key).ok().flatten();
                 let current_version = current.as_ref().map(|e| e.version).unwrap_or(0);
@@ -478,7 +599,6 @@ impl ReferenceModel for BasicKvReference {
 
                 match parsed_status {
                     Some(OpStatus::Ok) if !version_matches => {
-                        // Adapter accepted CAS but version didn't match — violation
                         failures.push(SafetyViolation {
                             op_id: op.id.clone(),
                             op: "cas".to_string(),
@@ -487,7 +607,6 @@ impl ReferenceModel for BasicKvReference {
                         });
                     }
                     Some(OpStatus::VersionMismatch) if version_matches => {
-                        // Adapter rejected CAS but version should have matched — violation
                         failures.push(SafetyViolation {
                             op_id: op.id.clone(),
                             op: "cas".to_string(),
@@ -495,7 +614,7 @@ impl ReferenceModel for BasicKvReference {
                             actual: "version_mismatch".to_string(),
                         });
                     }
-                    _ => {} // Expected behavior
+                    _ => {}
                 }
             }
 
@@ -554,9 +673,6 @@ impl ReferenceModel for BasicKvReference {
                     }
                 }
             }
-
-            // TODO: GetNotifications verification — compare received notifications
-            // against expected mutations. For now, just log them.
         }
 
         failures

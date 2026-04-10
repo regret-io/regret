@@ -94,8 +94,7 @@ impl BasicKvGenerator {
                     "delete_range" => self.gen_delete_range(id),
                     "list" => self.gen_list(id),
                     "range_scan" => self.gen_range_scan(id),
-                    "cas" => self.gen_cas(id),
-                    "cas_stale" => self.gen_cas_stale(id),
+
                     "ephemeral_put" => self.gen_ephemeral_put(id),
                     "indexed_put" => self.gen_indexed_put(id),
                     "indexed_get" => self.gen_indexed_get(id),
@@ -132,40 +131,6 @@ impl BasicKvGenerator {
         let span = self.rng.gen_range(1..=5.min(ks.count));
         let hi = (lo + span).min(ks.count);
         OriginOp::delete_range(id, self.format_key(lo), self.format_key(hi))
-    }
-
-    fn gen_cas(&mut self, id: String) -> OriginOp {
-        let key = self.random_key();
-        let new_value = self.random_value();
-        // Look up current version from RocksDB for correct CAS
-        let current_version = if let Some(rocks) = &self.rocks {
-            rocks.ref_get(&key).ok().flatten().map(|e| e.version).unwrap_or(0)
-        } else {
-            0
-        };
-        // If key doesn't exist in reference yet (version=0), fall back to put
-        if current_version == 0 {
-            return OriginOp::put(id, key, new_value);
-        }
-        OriginOp::cas(id, key, current_version, new_value)
-    }
-
-    /// Generate a CAS with an intentionally stale/wrong version.
-    fn gen_cas_stale(&mut self, id: String) -> OriginOp {
-        let key = self.random_key();
-        let new_value = self.random_value();
-        let current_version = if let Some(rocks) = &self.rocks {
-            rocks.ref_get(&key).ok().flatten().map(|e| e.version).unwrap_or(0)
-        } else {
-            0
-        };
-        // If key doesn't exist in reference yet, fall back to put
-        if current_version == 0 {
-            return OriginOp::put(id, key, new_value);
-        }
-        // Use a wrong version: current-1 (stale)
-        let stale_version = current_version - 1;
-        OriginOp::cas(id, key, stale_version, new_value)
     }
 
     fn gen_ephemeral_put(&mut self, id: String) -> OriginOp {
