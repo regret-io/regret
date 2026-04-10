@@ -12,6 +12,7 @@ use crate::types::HypothesisStatus;
 
 use super::SharedServices;
 use super::executor::{AdapterClient, ExecutionConfig, Executor, ProgressInfo, StopReason};
+use super::metrics_scraper::{self, ScraperConfig};
 
 /// Per-hypothesis lifecycle manager.
 pub struct HypothesisManager {
@@ -97,23 +98,48 @@ impl HypothesisManager {
             .await?;
 
         // Connect to adapter — adapter is user-managed, pilot just connects
+        let mut adapter_gprc_addr: Option<String> = None;
         let adapter_client: Option<Box<dyn AdapterClient>> = if let Some(adapter_def) = &adapter {
             // Use override address if provided, otherwise derive from adapter name
             let addr = adapter_addr_override
                 .unwrap_or_else(|| format!("http://adapter-{}:9090", adapter_def.name));
 
             info!(adapter = %adapter_def.name, %addr, "connecting to adapter");
-            match crate::adapter::grpc_client::GrpcAdapterClient::connect(&addr).await {
+            let client = match crate::adapter::grpc_client::GrpcAdapterClient::connect(&addr).await {
                 Ok(client) => Some(Box::new(client) as Box<dyn AdapterClient>),
                 Err(e) => {
                     warn!(adapter = %adapter_def.name, %addr, error = %e, "failed to connect, running without adapter");
                     None
                 }
-            }
+            };
+            adapter_gprc_addr = Some(addr);
+            client
         } else {
             info!(hypothesis_id = %self.hypothesis_id, "no adapter specified, running reference model only");
             None
         };
+
+        // Kick off the adapter metrics scraper alongside the executor. The
+        // scraper shares the executor's cancel token so stopping the run
+        // stops both in one motion.
+        if let Some(addr) = adapter_gprc_addr.as_deref() {
+            if let Some(metrics_url) = ScraperConfig::metrics_url_from_adapter_addr(addr) {
+                let cfg = ScraperConfig {
+                    hypothesis_id: self.hypothesis_id.clone(),
+                    run_id: run_id.clone(),
+                    metrics_url,
+                    interval: std::time::Duration::from_secs(ScraperConfig::DEFAULT_INTERVAL_SECS),
+                    request_timeout: std::time::Duration::from_secs(ScraperConfig::DEFAULT_TIMEOUT_SECS),
+                };
+                let sqlite = self.shared.sqlite.clone();
+                let scraper_cancel = cancel.clone();
+                tokio::spawn(async move {
+                    metrics_scraper::run(cfg, sqlite, scraper_cancel).await;
+                });
+            } else {
+                warn!(addr = %addr, "could not derive metrics URL from adapter address, scraper disabled");
+            }
+        }
 
         let executor = Executor {
             hypothesis_id: self.hypothesis_id.clone(),

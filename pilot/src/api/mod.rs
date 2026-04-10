@@ -5,6 +5,7 @@ pub mod error;
 pub mod generators;
 pub mod health;
 pub mod hypothesis;
+pub mod metrics;
 pub mod models;
 
 use axum::routing::{delete, get, post, put};
@@ -29,6 +30,7 @@ pub fn router(state: AppState, auth_password: Option<String>) -> Router {
         .route("/api/hypothesis/{id}/results", get(hypothesis::results))
         .route("/api/hypothesis/{id}/results/{result_id}", delete(hypothesis::delete_result))
         .route("/api/hypothesis/{id}/bundle", get(hypothesis::bundle))
+        .route("/api/hypothesis/{id}/metrics", get(metrics::get_metrics))
         // Adapters
         .route("/api/adapters", post(adapters::create))
         .route("/api/adapters", get(adapters::list))

@@ -18,37 +18,60 @@ public class RegretAdapterServer {
     private static final Logger LOG = LoggerFactory.getLogger(RegretAdapterServer.class);
 
     public static void serve(Adapter adapter) throws Exception {
+        serve(adapter, AdapterMetrics.createFromEnv(adapter.getClass().getSimpleName()));
+    }
+
+    public static void serve(Adapter adapter, AdapterMetrics metrics) throws Exception {
         int port = 9090;
         Server server = ServerBuilder.forPort(port)
-                .addService(new AdapterServiceImpl(adapter))
+                .addService(new AdapterServiceImpl(adapter, metrics))
                 .build().start();
         LOG.info("Adapter gRPC server started on port {}", port);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOG.info("Shutting down adapter server");
             server.shutdown();
+            if (metrics != null) metrics.close();
         }));
         server.awaitTermination();
     }
 
     private static class AdapterServiceImpl extends AdapterServiceGrpc.AdapterServiceImplBase {
         private final Adapter adapter;
-        AdapterServiceImpl(Adapter adapter) { this.adapter = adapter; }
+        private final AdapterMetrics metrics;
+
+        AdapterServiceImpl(Adapter adapter, AdapterMetrics metrics) {
+            this.adapter = adapter;
+            this.metrics = metrics;
+        }
 
         @Override
         public void executeBatch(Regret.BatchRequest request,
                 StreamObserver<Regret.BatchResponse> responseObserver) {
             try {
-                long start = System.currentTimeMillis();
+                long batchStartNanos = System.nanoTime();
                 LOG.info("executeBatch batchId={} ops={}", request.getBatchId(), request.getOpsCount());
 
-                // Execute all ops concurrently
+                // Execute all ops concurrently, recording per-op latency + status.
                 List<CompletableFuture<OpResult>> futures = new ArrayList<>();
                 for (Regret.Operation protoOp : request.getOpsList()) {
-                    Operation op = new Operation(
+                    final Operation op = new Operation(
                             protoOp.getOpId(),
                             OpType.fromString(protoOp.getOpType()),
                             protoOp.getPayload().toByteArray());
-                    futures.add(CompletableFuture.supplyAsync(() -> adapter.executeOp(op)));
+                    final String opTypeStr = protoOp.getOpType();
+                    futures.add(CompletableFuture.supplyAsync(() -> {
+                        long startNanos = System.nanoTime();
+                        OpResult result;
+                        String status = "error";
+                        try {
+                            result = adapter.executeOp(op);
+                            status = result != null && result.status() != null ? result.status() : "unknown";
+                            return result;
+                        } finally {
+                            double elapsed = (System.nanoTime() - startNanos) / 1_000_000_000.0;
+                            if (metrics != null) metrics.recordOp(opTypeStr, status, elapsed);
+                        }
+                    }));
                 }
 
                 // Wait for all
@@ -67,13 +90,16 @@ public class RegretAdapterServer {
                     rb.addResults(b.build());
                 }
 
-                long ms = System.currentTimeMillis() - start;
+                double batchElapsedSec = (System.nanoTime() - batchStartNanos) / 1_000_000_000.0;
+                long ms = (long) (batchElapsedSec * 1000.0);
                 LOG.info("executeBatch completed batchId={} ops={} {}ms", request.getBatchId(), request.getOpsCount(), ms);
+                if (metrics != null) metrics.recordBatch(request.getOpsCount(), batchElapsedSec);
 
                 responseObserver.onNext(rb.build());
                 responseObserver.onCompleted();
             } catch (Exception e) {
                 LOG.error("executeBatch failed", e);
+                if (metrics != null) metrics.recordGrpcError("executeBatch");
                 responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
             }
         }
@@ -81,6 +107,7 @@ public class RegretAdapterServer {
         @Override
         public void readState(Regret.ReadStateRequest request,
                 StreamObserver<Regret.ReadStateResponse> responseObserver) {
+            long startNanos = System.nanoTime();
             try {
                 List<Record> records = adapter.readState(request.getKeyPrefix());
                 LOG.info("readState prefix={} returned {} records", request.getKeyPrefix(), records.size());
@@ -91,10 +118,13 @@ public class RegretAdapterServer {
                     if (r.getMetadata() != null) rb.putAllMetadata(r.getMetadata());
                     b.addRecords(rb.build());
                 }
+                double elapsed = (System.nanoTime() - startNanos) / 1_000_000_000.0;
+                if (metrics != null) metrics.recordReadState(records.size(), elapsed);
                 responseObserver.onNext(b.build());
                 responseObserver.onCompleted();
             } catch (Exception e) {
                 LOG.error("readState failed", e);
+                if (metrics != null) metrics.recordGrpcError("readState");
                 responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
             }
         }
@@ -104,10 +134,15 @@ public class RegretAdapterServer {
                 StreamObserver<Regret.CleanupResponse> responseObserver) {
             try {
                 adapter.cleanup(request.getKeyPrefix());
+                if (metrics != null) metrics.recordCleanup("ok");
                 responseObserver.onNext(Regret.CleanupResponse.newBuilder().build());
                 responseObserver.onCompleted();
             } catch (Exception e) {
                 LOG.error("cleanup failed", e);
+                if (metrics != null) {
+                    metrics.recordCleanup("error");
+                    metrics.recordGrpcError("cleanup");
+                }
                 responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
             }
         }

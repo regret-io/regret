@@ -20,6 +20,7 @@ tasks.withType<JavaCompile> {
 
 val grpcVersion = "1.72.0"
 val protobufVersion = "4.31.1"
+val otelVersion = "1.44.1"
 
 dependencies {
     implementation("io.grpc:grpc-netty-shaded:$grpcVersion")
@@ -30,6 +31,12 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind:2.18.3")
     implementation("org.slf4j:slf4j-api:2.0.16")
     implementation("javax.annotation:javax.annotation-api:1.3.2")
+
+    // OpenTelemetry metrics + Prometheus exporter (pilot scrapes /metrics)
+    implementation("io.opentelemetry:opentelemetry-api:$otelVersion")
+    implementation("io.opentelemetry:opentelemetry-sdk:$otelVersion")
+    implementation("io.opentelemetry:opentelemetry-sdk-metrics:$otelVersion")
+    implementation("io.opentelemetry:opentelemetry-exporter-prometheus:$otelVersion-alpha")
 }
 
 protobuf {

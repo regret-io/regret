@@ -1,6 +1,7 @@
 pub mod events;
 pub mod executor;
 pub mod hypothesis_manager;
+pub mod metrics_scraper;
 
 use std::collections::HashMap;
 use std::sync::Arc;

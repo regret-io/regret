@@ -64,6 +64,25 @@ pub struct ChaosInjectionRecord {
     pub error: Option<String>,
 }
 
+/// One scraped sample from an adapter's Prometheus exporter.
+#[derive(Debug, Clone)]
+pub struct MetricSample {
+    pub hypothesis_id: String,
+    pub run_id: String,
+    pub ts: i64,          // unix epoch milliseconds
+    pub metric: String,   // full metric name incl. _count / _sum / _bucket suffixes
+    pub labels: String,   // JSON object, labels already sorted
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct MetricSampleRow {
+    pub ts: i64,
+    pub metric: String,
+    pub labels: String,
+    pub value: f64,
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct HypothesisResult {
     pub id: String,
@@ -98,11 +117,16 @@ impl SqliteStore {
             .execute(&pool)
             .await?;
 
-        let migration = include_str!("../../migrations/001_init.sql");
-        for statement in migration.split(';') {
-            let trimmed = statement.trim();
-            if !trimmed.is_empty() {
-                sqlx::query(trimmed).execute(&pool).await?;
+        let migrations: [&str; 2] = [
+            include_str!("../../migrations/001_init.sql"),
+            include_str!("../../migrations/002_adapter_metrics.sql"),
+        ];
+        for migration in migrations {
+            for statement in migration.split(';') {
+                let trimmed = statement.trim();
+                if !trimmed.is_empty() {
+                    sqlx::query(trimmed).execute(&pool).await?;
+                }
             }
         }
 
@@ -273,7 +297,7 @@ impl SqliteStore {
     ) -> Result<()> {
         sqlx::query(
             "INSERT INTO generators (name, description, workload, rate, builtin) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(name) DO UPDATE SET workload = excluded.workload, description = excluded.description WHERE builtin = 1",
+             ON CONFLICT(name) DO UPDATE SET workload = excluded.workload, description = excluded.description, rate = excluded.rate WHERE builtin = 1",
         )
         .bind(name)
         .bind(description)
@@ -512,5 +536,66 @@ impl SqliteStore {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    // --- Adapter metric samples ---
+
+    /// Bulk-insert scraped samples in a single transaction.
+    pub async fn insert_metric_samples(&self, samples: &[MetricSample]) -> Result<()> {
+        if samples.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.pool.begin().await?;
+        for s in samples {
+            sqlx::query(
+                "INSERT INTO adapter_metric_samples (hypothesis_id, run_id, ts, metric, labels, value) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&s.hypothesis_id)
+            .bind(&s.run_id)
+            .bind(s.ts)
+            .bind(&s.metric)
+            .bind(&s.labels)
+            .bind(s.value)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Query samples for a run, optionally filtered by metric prefix and time window.
+    pub async fn query_metric_samples(
+        &self,
+        run_id: &str,
+        metric_prefix: Option<&str>,
+        since_ms: Option<i64>,
+    ) -> Result<Vec<MetricSampleRow>> {
+        let mut sql = String::from(
+            "SELECT ts, metric, labels, value FROM adapter_metric_samples WHERE run_id = ?",
+        );
+        if metric_prefix.is_some() {
+            sql.push_str(" AND metric LIKE ?");
+        }
+        if since_ms.is_some() {
+            sql.push_str(" AND ts >= ?");
+        }
+        sql.push_str(" ORDER BY ts ASC");
+
+        let mut q = sqlx::query_as::<_, MetricSampleRow>(&sql).bind(run_id);
+        if let Some(prefix) = metric_prefix {
+            q = q.bind(format!("{prefix}%"));
+        }
+        if let Some(since) = since_ms {
+            q = q.bind(since);
+        }
+        Ok(q.fetch_all(&self.pool).await?)
+    }
+
+    pub async fn delete_metric_samples_for_run(&self, run_id: &str) -> Result<u64> {
+        let result = sqlx::query("DELETE FROM adapter_metric_samples WHERE run_id = ?")
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
     }
 }
