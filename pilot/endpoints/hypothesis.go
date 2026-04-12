@@ -1,8 +1,10 @@
 package endpoints
 
 import (
-	"github.com/regret-io/regret/pilot-go/ext"
 	"context"
+	"log/slog"
+
+	"github.com/regret-io/regret/pilot-go/ext"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -108,9 +110,11 @@ func (h *hypothesisHandlers) Create(w http.ResponseWriter, r *http.Request) {
 func (h *hypothesisHandlers) List(w http.ResponseWriter, r *http.Request) {
 	items, err := h.state.Sqlite.ListHypotheses(r.Context())
 	if err != nil {
+		slog.Error("ListHypotheses failed", "error", err)
 		WriteError(w, InternalError(err))
 		return
 	}
+	slog.Debug("ListHypotheses", "count", len(items))
 
 	resp := make([]HypothesisResponse, 0, len(items))
 	for i := range items {
@@ -504,7 +508,7 @@ func toHypothesisResponse(hyp *database.Hypothesis) HypothesisResponse {
 		CreatedAt:       hyp.CreatedAt,
 		LastRunAt:       hyp.LastRunAt,
 	}
-	if hyp.Tolerance != nil {
+	if hyp.Tolerance != nil && *hyp.Tolerance != "" {
 		raw := json.RawMessage(*hyp.Tolerance)
 		resp.Tolerance = &raw
 	}
