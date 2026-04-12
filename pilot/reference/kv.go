@@ -1,9 +1,12 @@
 package reference
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/cockroachdb/pebble"
 )
 
 // BasicKvReference is the reference model for all KV-family generators.
@@ -882,4 +885,502 @@ func strPtrEqual(a, b *string) bool {
 		return false
 	}
 	return *a == *b
+}
+
+// ---------------------------------------------------------------------------
+// Pebble storage implementation
+// ---------------------------------------------------------------------------
+
+// pebbleDB is the concrete Pebble-backed store for reference state.
+type pebbleDB struct {
+	db *pebble.DB
+}
+
+// openPebble opens (or creates) a Pebble database at the given path.
+func openPebble(path string) (*pebbleDB, error) {
+	db, err := pebble.Open(path, &pebble.Options{})
+	if err != nil {
+		return nil, fmt.Errorf("open pebble: %w", err)
+	}
+	return &pebbleDB{db: db}, nil
+}
+
+func (p *pebbleDB) close() error {
+	return p.db.Close()
+}
+
+// ---------------------------------------------------------------------------
+// Internal key helpers
+// ---------------------------------------------------------------------------
+
+const refPrefix = "__ref__\x00"
+
+func refKey(key string) []byte {
+	return []byte(refPrefix + key)
+}
+
+func stripRefPrefix(k []byte) string {
+	return string(k[len(refPrefix):])
+}
+
+func marshalRef(e *refEntry) ([]byte, error) {
+	return json.Marshal(e)
+}
+
+func unmarshalRef(data []byte) (*refEntry, error) {
+	var e refEntry
+	if err := json.Unmarshal(data, &e); err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// ---------------------------------------------------------------------------
+// Ref state methods
+// ---------------------------------------------------------------------------
+
+func (p *pebbleDB) refPut(key string, entry *refEntry, indexName, indexKey string) error {
+	if indexName == "" {
+		// Simple put -- no batch needed
+		data, err := marshalRef(entry)
+		if err != nil {
+			return fmt.Errorf("marshal ref: %w", err)
+		}
+		return p.db.Set(refKey(key), data, pebble.Sync)
+	}
+	// Atomic: put record + update secondary index
+	batch := p.db.NewBatch()
+	data, err := marshalRef(entry)
+	if err != nil {
+		return fmt.Errorf("marshal ref: %w", err)
+	}
+	if err := batch.Set(refKey(key), data, nil); err != nil {
+		return fmt.Errorf("batch set ref: %w", err)
+	}
+	// Delete old index entries for this primary key, then add new one
+	p.batchIdxDeletePrimary(batch, indexName, key)
+	ik := idxKey(indexName, indexKey, key)
+	if err := batch.Set(ik, nil, nil); err != nil {
+		return fmt.Errorf("batch set idx: %w", err)
+	}
+	return batch.Commit(pebble.Sync)
+}
+
+func (p *pebbleDB) refGet(key string) (*refEntry, error) {
+	data, closer, err := p.db.Get(refKey(key))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("ref get: %w", err)
+	}
+	defer closer.Close()
+
+	return unmarshalRef(data)
+}
+
+func (p *pebbleDB) refDelete(key string) error {
+	return p.db.Delete(refKey(key), pebble.Sync)
+}
+
+func (p *pebbleDB) refDeleteRange(prefix, start, end string) error {
+	keys, err := p.refRangeKeys(prefix, start, end)
+	if err != nil {
+		return err
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	batch := p.db.NewBatch()
+	for _, k := range keys {
+		if err := batch.Delete(refKey(k), nil); err != nil {
+			return fmt.Errorf("batch delete: %w", err)
+		}
+	}
+	return batch.Commit(pebble.Sync)
+}
+
+func (p *pebbleDB) refApplyBatch(ops []refOp) error {
+	if len(ops) == 0 {
+		return nil
+	}
+	batch := p.db.NewBatch()
+	for _, op := range ops {
+		if op.entry != nil {
+			// Put
+			data, err := marshalRef(op.entry)
+			if err != nil {
+				return fmt.Errorf("marshal ref: %w", err)
+			}
+			if err := batch.Set(refKey(op.key), data, nil); err != nil {
+				return fmt.Errorf("batch set: %w", err)
+			}
+			if op.indexName != "" {
+				p.batchIdxDeletePrimary(batch, op.indexName, op.key)
+				if err := batch.Set(idxKey(op.indexName, op.indexKey, op.key), nil, nil); err != nil {
+					return fmt.Errorf("batch set idx: %w", err)
+				}
+			}
+		} else {
+			// Delete
+			if err := batch.Delete(refKey(op.key), nil); err != nil {
+				return fmt.Errorf("batch delete: %w", err)
+			}
+		}
+	}
+	return batch.Commit(pebble.Sync)
+}
+
+// batchIdxDeletePrimary scans for and deletes all index entries for a primary key within a batch.
+func (p *pebbleDB) batchIdxDeletePrimary(batch *pebble.Batch, indexName, primaryKey string) {
+	prefix := []byte(idxPrefix + "\x00" + indexName + "\x00")
+	upper := appendByte(prefix, 0xff)
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return
+	}
+	defer iter.Close()
+	suffix := "\x00" + primaryKey
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := string(iter.Key())
+		if len(k) >= len(suffix) && k[len(k)-len(suffix):] == suffix {
+			_ = batch.Delete(iter.Key(), nil)
+		}
+	}
+}
+
+func (p *pebbleDB) refRangeKeys(prefix, start, end string) ([]string, error) {
+	lower := refKey(prefix + start)
+	upper := refKey(prefix + end)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: lower,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ref range keys iter: %w", err)
+	}
+	defer iter.Close()
+
+	var keys []string
+	for iter.First(); iter.Valid(); iter.Next() {
+		keys = append(keys, stripRefPrefix(iter.Key()))
+	}
+	return keys, iter.Error()
+}
+
+func (p *pebbleDB) refRangeScan(prefix, start, end string) ([]keyEntry, error) {
+	lower := refKey(prefix + start)
+	upper := refKey(prefix + end)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: lower,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ref range scan iter: %w", err)
+	}
+	defer iter.Close()
+
+	var out []keyEntry
+	for iter.First(); iter.Valid(); iter.Next() {
+		val, err := iter.ValueAndErr()
+		if err != nil {
+			return nil, fmt.Errorf("ref range scan value: %w", err)
+		}
+		entry, err := unmarshalRef(val)
+		if err != nil {
+			return nil, fmt.Errorf("ref range scan unmarshal: %w", err)
+		}
+		out = append(out, keyEntry{
+			key:   stripRefPrefix(iter.Key()),
+			entry: *entry,
+		})
+	}
+	return out, iter.Error()
+}
+
+func (p *pebbleDB) refFloor(prefix, target string) (*keyEntry, error) {
+	fullTarget := refKey(prefix + target)
+	prefixLower := refKey(prefix)
+	prefixUpper := appendByte(refKey(prefix), 0xff)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefixLower,
+		UpperBound: prefixUpper,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ref floor iter: %w", err)
+	}
+	defer iter.Close()
+
+	// SeekGE to target, then check or step back.
+	if iter.SeekGE(fullTarget) {
+		if string(iter.Key()) == string(fullTarget) {
+			return keyEntryFromIter(iter)
+		}
+		// Current key > target, step back.
+		if iter.Prev() {
+			return keyEntryFromIter(iter)
+		}
+	} else {
+		// Past all keys -- last one is the floor.
+		if iter.Last() {
+			return keyEntryFromIter(iter)
+		}
+	}
+	return nil, iter.Error()
+}
+
+func (p *pebbleDB) refCeiling(prefix, target string) (*keyEntry, error) {
+	fullTarget := refKey(prefix + target)
+	prefixLower := refKey(prefix)
+	prefixUpper := appendByte(refKey(prefix), 0xff)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefixLower,
+		UpperBound: prefixUpper,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ref ceiling iter: %w", err)
+	}
+	defer iter.Close()
+
+	if iter.SeekGE(fullTarget) {
+		return keyEntryFromIter(iter)
+	}
+	return nil, iter.Error()
+}
+
+func (p *pebbleDB) refLower(prefix, target string) (*keyEntry, error) {
+	fullTarget := refKey(prefix + target)
+	prefixLower := refKey(prefix)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefixLower,
+		UpperBound: fullTarget, // exclusive upper bound = strictly less than target
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ref lower iter: %w", err)
+	}
+	defer iter.Close()
+
+	if iter.Last() {
+		return keyEntryFromIter(iter)
+	}
+	return nil, iter.Error()
+}
+
+func (p *pebbleDB) refHigher(prefix, target string) (*keyEntry, error) {
+	fullTarget := refKey(prefix + target)
+	prefixLower := refKey(prefix)
+	prefixUpper := appendByte(refKey(prefix), 0xff)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefixLower,
+		UpperBound: prefixUpper,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ref higher iter: %w", err)
+	}
+	defer iter.Close()
+
+	if iter.SeekGE(fullTarget) {
+		// If exact match, move forward.
+		if string(iter.Key()) == string(fullTarget) {
+			if !iter.Next() {
+				return nil, iter.Error()
+			}
+		}
+		return keyEntryFromIter(iter)
+	}
+	return nil, iter.Error()
+}
+
+func (p *pebbleDB) refClear(prefix string) error {
+	fullPrefix := refKey(prefix)
+	upper := appendByte(fullPrefix, 0xff)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: fullPrefix,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return fmt.Errorf("ref clear iter: %w", err)
+	}
+
+	batch := p.db.NewBatch()
+	for iter.First(); iter.Valid(); iter.Next() {
+		batch.Delete(iter.Key(), nil)
+	}
+	if err := iter.Error(); err != nil {
+		iter.Close()
+		batch.Close()
+		return fmt.Errorf("ref clear scan: %w", err)
+	}
+	iter.Close()
+
+	if err := batch.Commit(pebble.Sync); err != nil {
+		return fmt.Errorf("ref clear commit: %w", err)
+	}
+	return nil
+}
+
+func (p *pebbleDB) refScanAll(prefix string) ([]keyEntry, error) {
+	fullPrefix := refKey(prefix)
+	upper := appendByte(fullPrefix, 0xff)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: fullPrefix,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ref scan all iter: %w", err)
+	}
+	defer iter.Close()
+
+	var out []keyEntry
+	for iter.First(); iter.Valid(); iter.Next() {
+		val, err := iter.ValueAndErr()
+		if err != nil {
+			return nil, fmt.Errorf("ref scan all value: %w", err)
+		}
+		entry, err := unmarshalRef(val)
+		if err != nil {
+			return nil, fmt.Errorf("ref scan all unmarshal: %w", err)
+		}
+		out = append(out, keyEntry{
+			key:   stripRefPrefix(iter.Key()),
+			entry: *entry,
+		})
+	}
+	return out, iter.Error()
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+func keyEntryFromIter(iter *pebble.Iterator) (*keyEntry, error) {
+	val, err := iter.ValueAndErr()
+	if err != nil {
+		return nil, fmt.Errorf("iter value: %w", err)
+	}
+	entry, err := unmarshalRef(val)
+	if err != nil {
+		return nil, fmt.Errorf("iter unmarshal: %w", err)
+	}
+	return &keyEntry{
+		key:   stripRefPrefix(iter.Key()),
+		entry: *entry,
+	}, nil
+}
+
+func appendByte(b []byte, c byte) []byte {
+	out := make([]byte, len(b)+1)
+	copy(out, b)
+	out[len(b)] = c
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Secondary index methods
+// ---------------------------------------------------------------------------
+
+const idxPrefix = "__idx__\x00"
+
+// idxKey builds: __idx__\0{indexName}\0{indexKey}\0{primaryKey}
+func idxKey(indexName, indexKey, primaryKey string) []byte {
+	return []byte(idxPrefix + indexName + "\x00" + indexKey + "\x00" + primaryKey)
+}
+
+func (p *pebbleDB) idxPut(indexName, indexKey, primaryKey string) error {
+	return p.db.Set(idxKey(indexName, indexKey, primaryKey), []byte{}, pebble.Sync)
+}
+
+func (p *pebbleDB) idxDeletePrimary(indexName, primaryKey string) error {
+	prefix := []byte(idxPrefix + indexName + "\x00")
+	upper := appendByte(prefix, 0xff)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return fmt.Errorf("idx delete primary iter: %w", err)
+	}
+
+	suffix := "\x00" + primaryKey
+	batch := p.db.NewBatch()
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := string(iter.Key())
+		if strings.HasSuffix(k, suffix) {
+			batch.Delete(iter.Key(), nil)
+		}
+	}
+	if err := iter.Error(); err != nil {
+		iter.Close()
+		batch.Close()
+		return fmt.Errorf("idx delete primary scan: %w", err)
+	}
+	iter.Close()
+
+	return batch.Commit(pebble.Sync)
+}
+
+func (p *pebbleDB) idxList(indexName, start, end string) ([]string, error) {
+	lower := []byte(idxPrefix + indexName + "\x00" + start)
+	upper := []byte(idxPrefix + indexName + "\x00" + end)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: lower,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("idx list iter: %w", err)
+	}
+	defer iter.Close()
+
+	// Key format: __idx__\0{indexName}\0{indexKey}\0{primaryKey}
+	namePrefix := idxPrefix + indexName + "\x00"
+
+	var out []string
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := string(iter.Key())
+		rest := k[len(namePrefix):] // indexKey\0primaryKey
+		parts := strings.SplitN(rest, "\x00", 2)
+		if len(parts) == 2 {
+			out = append(out, parts[1])
+		}
+	}
+	return out, iter.Error()
+}
+
+func (p *pebbleDB) idxClear(indexName string) error {
+	prefix := []byte(idxPrefix + indexName + "\x00")
+	upper := appendByte(prefix, 0xff)
+
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return fmt.Errorf("idx clear iter: %w", err)
+	}
+
+	batch := p.db.NewBatch()
+	for iter.First(); iter.Valid(); iter.Next() {
+		batch.Delete(iter.Key(), nil)
+	}
+	if err := iter.Error(); err != nil {
+		iter.Close()
+		batch.Close()
+		return fmt.Errorf("idx clear scan: %w", err)
+	}
+	iter.Close()
+
+	return batch.Commit(pebble.Sync)
 }
