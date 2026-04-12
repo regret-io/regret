@@ -60,12 +60,31 @@ func unmarshalRef(data []byte) (*RefEntry, error) {
 // Ref state methods
 // ---------------------------------------------------------------------------
 
-func (p *pebbleDB) RefPut(key string, entry *RefEntry) error {
+func (p *pebbleDB) RefPut(key string, entry *RefEntry, indexName, indexKey string) error {
+	if indexName == "" {
+		// Simple put — no batch needed
+		data, err := marshalRef(entry)
+		if err != nil {
+			return fmt.Errorf("marshal ref: %w", err)
+		}
+		return p.db.Set(refKey(key), data, pebble.Sync)
+	}
+	// Atomic: put record + update secondary index
+	batch := p.db.NewBatch()
 	data, err := marshalRef(entry)
 	if err != nil {
 		return fmt.Errorf("marshal ref: %w", err)
 	}
-	return p.db.Set(refKey(key), data, pebble.Sync)
+	if err := batch.Set(refKey(key), data, nil); err != nil {
+		return fmt.Errorf("batch set ref: %w", err)
+	}
+	// Delete old index entries for this primary key, then add new one
+	p.batchIdxDeletePrimary(batch, indexName, key)
+	idxKey := idxKey(indexName, indexKey, key)
+	if err := batch.Set(idxKey, nil, nil); err != nil {
+		return fmt.Errorf("batch set idx: %w", err)
+	}
+	return batch.Commit(pebble.Sync)
 }
 
 func (p *pebbleDB) RefGet(key string) (*RefEntry, error) {
@@ -83,6 +102,75 @@ func (p *pebbleDB) RefGet(key string) (*RefEntry, error) {
 
 func (p *pebbleDB) RefDelete(key string) error {
 	return p.db.Delete(refKey(key), pebble.Sync)
+}
+
+func (p *pebbleDB) RefDeleteRange(prefix, start, end string) error {
+	keys, err := p.RefRangeKeys(prefix, start, end)
+	if err != nil {
+		return err
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	batch := p.db.NewBatch()
+	for _, k := range keys {
+		if err := batch.Delete(refKey(k), nil); err != nil {
+			return fmt.Errorf("batch delete: %w", err)
+		}
+	}
+	return batch.Commit(pebble.Sync)
+}
+
+func (p *pebbleDB) RefApplyBatch(ops []RefOp) error {
+	if len(ops) == 0 {
+		return nil
+	}
+	batch := p.db.NewBatch()
+	for _, op := range ops {
+		if op.Entry != nil {
+			// Put
+			data, err := marshalRef(op.Entry)
+			if err != nil {
+				return fmt.Errorf("marshal ref: %w", err)
+			}
+			if err := batch.Set(refKey(op.Key), data, nil); err != nil {
+				return fmt.Errorf("batch set: %w", err)
+			}
+			if op.IndexName != "" {
+				p.batchIdxDeletePrimary(batch, op.IndexName, op.Key)
+				if err := batch.Set(idxKey(op.IndexName, op.IndexKey, op.Key), nil, nil); err != nil {
+					return fmt.Errorf("batch set idx: %w", err)
+				}
+			}
+		} else {
+			// Delete
+			if err := batch.Delete(refKey(op.Key), nil); err != nil {
+				return fmt.Errorf("batch delete: %w", err)
+			}
+		}
+	}
+	return batch.Commit(pebble.Sync)
+}
+
+// batchIdxDeletePrimary scans for and deletes all index entries for a primary key within a batch.
+func (p *pebbleDB) batchIdxDeletePrimary(batch *pebble.Batch, indexName, primaryKey string) {
+	prefix := []byte(idxPrefix + "\x00" + indexName + "\x00")
+	upper := appendByte(prefix, 0xff)
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return
+	}
+	defer iter.Close()
+	suffix := "\x00" + primaryKey
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := string(iter.Key())
+		if len(k) >= len(suffix) && k[len(k)-len(suffix):] == suffix {
+			_ = batch.Delete(iter.Key(), nil)
+		}
+	}
 }
 
 func (p *pebbleDB) RefRangeKeys(prefix, start, end string) ([]string, error) {
@@ -390,34 +478,6 @@ func (p *pebbleDB) IdxList(indexName, start, end string) ([]string, error) {
 		}
 	}
 	return out, iter.Error()
-}
-
-// ---------------------------------------------------------------------------
-// WriteBatch implementation
-// ---------------------------------------------------------------------------
-
-type pebbleBatch struct {
-	batch *pebble.Batch
-}
-
-func (p *pebbleDB) RefBatch() WriteBatch {
-	return &pebbleBatch{batch: p.db.NewBatch()}
-}
-
-func (b *pebbleBatch) Put(key string, entry *RefEntry) {
-	data, err := marshalRef(entry)
-	if err != nil {
-		return
-	}
-	b.batch.Set(refKey(key), data, nil)
-}
-
-func (b *pebbleBatch) Delete(key string) {
-	b.batch.Delete(refKey(key), nil)
-}
-
-func (b *pebbleBatch) Commit() error {
-	return b.batch.Commit(pebble.Sync)
 }
 
 func (p *pebbleDB) IdxClear(indexName string) error {

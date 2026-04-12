@@ -10,19 +10,26 @@ type RefEntry struct {
 }
 
 // PebbleStore defines the storage interface for reference state backed by PebbleDB.
-// This is the Go equivalent of the Rust RocksStore.
-// It embeds io.Closer for lifecycle management.
+// All multi-key operations are internally atomic (using Pebble batches).
 type PebbleStore interface {
 	io.Closer
 
 	// RefPut stores a reference entry at the given key.
-	RefPut(key string, entry *RefEntry) error
+	// If indexName is non-empty, atomically updates the secondary index too.
+	RefPut(key string, entry *RefEntry, indexName, indexKey string) error
 
 	// RefGet retrieves a reference entry by exact key. Returns nil if not found.
 	RefGet(key string) (*RefEntry, error)
 
 	// RefDelete removes a reference entry.
 	RefDelete(key string) error
+
+	// RefDeleteRange atomically deletes all keys in [start, end) within a prefix.
+	RefDeleteRange(prefix, start, end string) error
+
+	// RefApplyBatch atomically applies multiple put/delete operations.
+	// Each op is either a RefOp with Put or Delete.
+	RefApplyBatch(ops []RefOp) error
 
 	// RefRangeKeys returns all keys in [start, end) within a prefix, sorted.
 	RefRangeKeys(prefix, start, end string) ([]string, error)
@@ -59,19 +66,15 @@ type PebbleStore interface {
 
 	// IdxClear removes all index entries for a given index name.
 	IdxClear(indexName string) error
-
-	// RefBatch creates a new WriteBatch for atomic writes.
-	RefBatch() WriteBatch
 }
 
-// WriteBatch accumulates writes for atomic commit.
-type WriteBatch interface {
-	// Put stores a reference entry in the batch.
-	Put(key string, entry *RefEntry)
-	// Delete removes a reference entry in the batch.
-	Delete(key string)
-	// Commit atomically applies all batched writes.
-	Commit() error
+// RefOp is a single put or delete operation for RefApplyBatch.
+type RefOp struct {
+	Key    string
+	Entry  *RefEntry // non-nil = put, nil = delete
+	// Optional secondary index fields (only used with put)
+	IndexName string
+	IndexKey  string
 }
 
 // KeyEntry is a key-entry pair returned by range operations.

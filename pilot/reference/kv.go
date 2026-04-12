@@ -44,7 +44,7 @@ func shouldIgnoreField(field string, tolerance *Tolerance) bool {
 	return false
 }
 
-// applyWrite applies a successful write to the reference state (unbatched, for CAS conflict path).
+// applyWrite applies a successful write to the reference state.
 // Uses the adapter's returned version_id and key when available.
 func (r *BasicKvReference) applyWrite(op *Operation, adapterVersion *uint64, adapterKey *string) {
 	switch op.Kind.Type {
@@ -55,11 +55,7 @@ func (r *BasicKvReference) applyWrite(op *Operation, adapterVersion *uint64, ada
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
 		_ = r.pebble.RefPut(op.Kind.Key, &storage.RefEntry{
 			Value: op.Kind.Value, Version: version, Ephemeral: op.Kind.Ephemeral,
-		})
-		if op.Kind.IndexName != "" {
-			_ = r.pebble.IdxDeletePrimary(op.Kind.IndexName, op.Kind.Key)
-			_ = r.pebble.IdxPut(op.Kind.IndexName, op.Kind.IndexKey, op.Kind.Key)
-		}
+		}, op.Kind.IndexName, op.Kind.IndexKey)
 
 	case OpKindDelete:
 		_ = r.pebble.RefDelete(op.Kind.Key)
@@ -68,57 +64,40 @@ func (r *BasicKvReference) applyWrite(op *Operation, adapterVersion *uint64, ada
 		prefix := r.runPrefix()
 		relStart := strings.TrimPrefix(op.Kind.Start, prefix)
 		relEnd := strings.TrimPrefix(op.Kind.End, prefix)
-		keys, err := r.pebble.RefRangeKeys(prefix, relStart, relEnd)
-		if err == nil {
-			for _, k := range keys {
-				_ = r.pebble.RefDelete(k)
-			}
-		}
+		_ = r.pebble.RefDeleteRange(prefix, relStart, relEnd)
 
 	case OpKindCas:
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
 		_ = r.pebble.RefPut(op.Kind.Key, &storage.RefEntry{
 			Value: op.Kind.NewValue, Version: version, Ephemeral: false,
-		})
+		}, "", "")
 	}
 }
 
-// applyWriteBatch applies a successful write to a pebble batch for atomic commit.
-// Index operations still go directly since they use a separate key namespace.
-func (r *BasicKvReference) applyWriteBatch(batch storage.WriteBatch, op *Operation, adapterVersion *uint64, adapterKey *string) {
+// collectRefOp builds a RefOp for batched application.
+func (r *BasicKvReference) collectRefOp(op *Operation, adapterVersion *uint64) *storage.RefOp {
 	switch op.Kind.Type {
 	case OpKindPut:
 		if op.Kind.Sequence {
-			return
+			return nil
 		}
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
-		batch.Put(op.Kind.Key, &storage.RefEntry{
-			Value: op.Kind.Value, Version: version, Ephemeral: op.Kind.Ephemeral,
-		})
-		if op.Kind.IndexName != "" {
-			_ = r.pebble.IdxDeletePrimary(op.Kind.IndexName, op.Kind.Key)
-			_ = r.pebble.IdxPut(op.Kind.IndexName, op.Kind.IndexKey, op.Kind.Key)
+		return &storage.RefOp{
+			Key:       op.Kind.Key,
+			Entry:     &storage.RefEntry{Value: op.Kind.Value, Version: version, Ephemeral: op.Kind.Ephemeral},
+			IndexName: op.Kind.IndexName,
+			IndexKey:  op.Kind.IndexKey,
 		}
-
 	case OpKindDelete:
-		batch.Delete(op.Kind.Key)
-
-	case OpKindDeleteRange:
-		prefix := r.runPrefix()
-		relStart := strings.TrimPrefix(op.Kind.Start, prefix)
-		relEnd := strings.TrimPrefix(op.Kind.End, prefix)
-		keys, err := r.pebble.RefRangeKeys(prefix, relStart, relEnd)
-		if err == nil {
-			for _, k := range keys {
-				batch.Delete(k)
-			}
-		}
-
+		return &storage.RefOp{Key: op.Kind.Key}
 	case OpKindCas:
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
-		batch.Put(op.Kind.Key, &storage.RefEntry{
-			Value: op.Kind.NewValue, Version: version, Ephemeral: false,
-		})
+		return &storage.RefOp{
+			Key:   op.Kind.Key,
+			Entry: &storage.RefEntry{Value: op.Kind.NewValue, Version: version},
+		}
+	default:
+		return nil
 	}
 }
 
@@ -718,8 +697,8 @@ func (r *BasicKvReference) ProcessResponse(
 		}
 	}
 
-	// Phase 2: Verify and apply writes (using atomic batch)
-	batch := r.pebble.RefBatch()
+	// Phase 2: Verify writes and collect ops for atomic batch commit
+	var batchOps []storage.RefOp
 	for i := range ops {
 		if i >= len(response.Results) {
 			break
@@ -756,8 +735,17 @@ func (r *BasicKvReference) ProcessResponse(
 			}
 		}
 
+		// Collect write ops for atomic batch
 		if isWriteOp(op.Kind.Type) && result.Status == OpStatusOk {
-			r.applyWriteBatch(batch, op, result.VersionID, result.Key)
+			// DeleteRange is handled atomically inside PebbleStore
+			if op.Kind.Type == OpKindDeleteRange {
+				prefix := r.runPrefix()
+				relStart := strings.TrimPrefix(op.Kind.Start, prefix)
+				relEnd := strings.TrimPrefix(op.Kind.End, prefix)
+				_ = r.pebble.RefDeleteRange(prefix, relStart, relEnd)
+			} else if refOp := r.collectRefOp(op, result.VersionID); refOp != nil {
+				batchOps = append(batchOps, *refOp)
+			}
 		}
 
 		// Sequence put monotonicity verification
@@ -782,9 +770,11 @@ func (r *BasicKvReference) ProcessResponse(
 		}
 	}
 
-	// Commit all Phase 2 writes atomically
-	if err := batch.Commit(); err != nil {
-		slog.Warn("failed to commit write batch", slog.Any("error", err))
+	// Apply all collected writes atomically
+	if len(batchOps) > 0 {
+		if err := r.pebble.RefApplyBatch(batchOps); err != nil {
+			slog.Warn("failed to apply write batch", slog.Any("error", err))
+		}
 	}
 
 	return failures
