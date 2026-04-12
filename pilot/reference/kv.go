@@ -656,14 +656,47 @@ func (r *BasicKvReference) ProcessResponse(
 		return failures
 	}
 
-	// Non-conflict path: original per-op verification
+	// Non-conflict path: verify reads first, then apply writes.
+	// The adapter executes ops concurrently, so reads see the state
+	// BEFORE any writes in the same batch.
+
+	// Phase 1: Verify reads against current reference state
 	for i := range ops {
 		if i >= len(response.Results) {
 			break
 		}
 		op := &ops[i]
 		result := &response.Results[i]
+		if op.ID != result.OpID {
+			continue
+		}
+		if isReadOp(op.Kind.Type) {
+			if violation := r.verifyRead(op, result, tolerance); violation != nil {
+				failures = append(failures, *violation)
+			}
+		}
 
+		// Session restart: delete all ephemeral keys from reference
+		if op.Kind.Type == OpKindSessionRestart && result.Status == OpStatusOk {
+			prefix := r.runPrefix()
+			all, err := r.pebble.RefScanAll(prefix)
+			if err == nil {
+				for _, ke := range all {
+					if ke.Entry.Ephemeral {
+						_ = r.pebble.RefDelete(ke.Key)
+					}
+				}
+			}
+		}
+	}
+
+	// Phase 2: Verify and apply writes
+	for i := range ops {
+		if i >= len(response.Results) {
+			break
+		}
+		op := &ops[i]
+		result := &response.Results[i]
 		if op.ID != result.OpID {
 			continue
 		}
@@ -716,25 +749,6 @@ func (r *BasicKvReference) ProcessResponse(
 			} else {
 				slog.Warn("sequence_put succeeded but no key returned",
 					slog.String("op_id", op.ID))
-			}
-		}
-
-		if isReadOp(op.Kind.Type) {
-			if violation := r.verifyRead(op, result, tolerance); violation != nil {
-				failures = append(failures, *violation)
-			}
-		}
-
-		// Session restart: delete all ephemeral keys from reference
-		if op.Kind.Type == OpKindSessionRestart && result.Status == OpStatusOk {
-			prefix := r.runPrefix()
-			all, err := r.pebble.RefScanAll(prefix)
-			if err == nil {
-				for _, ke := range all {
-					if ke.Entry.Ephemeral {
-						_ = r.pebble.RefDelete(ke.Key)
-					}
-				}
 			}
 		}
 	}
