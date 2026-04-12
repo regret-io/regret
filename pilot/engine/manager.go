@@ -142,15 +142,15 @@ func (m *HypothesisManager) StartRun(
 		return "", nil, fmt.Errorf("update last_run_at: %w", err)
 	}
 
-	// Determine adapter address
+	// Log if adapter is set but no client provided
 	if adapter != nil && adapterClient == nil {
 		addr := ""
-		if adapterAddrOverride != nil {
+		if adapterAddrOverride != nil && *adapterAddrOverride != "" {
 			addr = *adapterAddrOverride
 		} else {
 			addr = fmt.Sprintf("http://adapter-%s:9090", adapter.Name)
 		}
-		slog.Info("adapter address determined but no client provided",
+		slog.Warn("adapter configured but no client provided, running in mock mode",
 			slog.String("adapter", adapter.Name),
 			slog.String("addr", addr),
 		)
@@ -160,7 +160,7 @@ func (m *HypothesisManager) StartRun(
 	runCtx, cancel := context.WithCancel(ctx)
 	if adapter != nil {
 		addr := ""
-		if adapterAddrOverride != nil {
+		if adapterAddrOverride != nil && *adapterAddrOverride != "" {
 			addr = *adapterAddrOverride
 		} else {
 			addr = fmt.Sprintf("http://adapter-%s:9090", adapter.Name)

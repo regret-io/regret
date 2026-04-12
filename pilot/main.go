@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog"
 	slogzerolog "github.com/samber/slog-zerolog/v2"
 
+	adapterPkg "github.com/regret-io/regret/pilot-go/adapter"
 	"github.com/regret-io/regret/pilot-go/api"
 	"github.com/regret-io/regret/pilot-go/chaos"
 	"github.com/regret-io/regret/pilot-go/engine"
@@ -173,16 +174,20 @@ func main() {
 			rate = uint32(genRecord.Rate)
 		}
 
-		genParams := &generator.GenerateParams{
-			Generator:  h.Generator,
-			Ops:        int(^uint(0) >> 1), // MaxInt
-			SkipWarmup: strings.Contains(h.Generator, "notification"),
-			Rate:       rate,
-		}
+		genParams := generator.DefaultGenerateParams()
+		genParams.Generator = h.Generator
+		genParams.Ops = int(^uint(0) >> 1) // MaxInt
+		genParams.SkipWarmup = strings.Contains(h.Generator, "notification")
+		genParams.Rate = rate
 		if h.KeySpace != "" {
 			var ks generator.KeySpaceConfig
 			if err := json.Unmarshal([]byte(h.KeySpace), &ks); err == nil {
-				genParams.KeySpace = ks
+				if ks.Count > 0 {
+					genParams.KeySpace.Count = ks.Count
+				}
+				if ks.Prefix != "" {
+					genParams.KeySpace.Prefix = ks.Prefix
+				}
 			}
 		}
 		genParams.KeySpace.Prefix = fmt.Sprintf("/%s/", h.ID)
@@ -196,7 +201,24 @@ func main() {
 			mgr.SetResumeRunID(lastResult.RunID)
 			slog.Info("restoring run ID", slog.String("id", h.ID), slog.String("run_id", lastResult.RunID))
 		}
-		runID, _, err := mgr.StartRun(ctx, execConfig, genParams, adapter, h.AdapterAddr, nil)
+		// Connect to adapter gRPC client
+		var adapterClient engine.AdapterClient
+		if adapter != nil {
+			addr := ""
+			if h.AdapterAddr != nil && *h.AdapterAddr != "" {
+				addr = *h.AdapterAddr
+			} else {
+				addr = fmt.Sprintf("http://adapter-%s:9090", adapter.Name)
+			}
+			client, err := adapterPkg.Connect(addr)
+			if err != nil {
+				slog.Warn("failed to connect to adapter", slog.String("id", h.ID), slog.Any("error", err))
+			} else {
+				adapterClient = client
+				slog.Info("connected to adapter", slog.String("adapter", adapter.Name), slog.String("addr", addr))
+			}
+		}
+		runID, _, err := mgr.StartRun(ctx, execConfig, genParams, adapter, h.AdapterAddr, adapterClient)
 		if err != nil {
 			slog.Warn("failed to resume hypothesis", slog.String("id", h.ID), slog.Any("error", err))
 		} else {

@@ -22,7 +22,7 @@ func (g *generatorHandlers) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var items []GeneratorResponse
+	items := make([]GeneratorResponse, 0, len(generators))
 	for i := range generators {
 		items = append(items, toGeneratorResponse(&generators[i]))
 	}

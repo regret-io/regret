@@ -84,7 +84,7 @@ func (m *metricsHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build sorted MetricGroups
-	var metrics []MetricGroup
+	metrics := make([]MetricGroup, 0)
 	metricNames := make([]string, 0, len(grouped))
 	for name := range grouped {
 		metricNames = append(metricNames, name)
@@ -93,7 +93,7 @@ func (m *metricsHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 
 	for _, name := range metricNames {
 		seriesByLabels := grouped[name]
-		var series []MetricSeries
+		series := make([]MetricSeries, 0)
 		for labels, points := range seriesByLabels {
 			var labelsObj interface{}
 			if err := json.Unmarshal([]byte(labels), &labelsObj); err != nil {
@@ -202,7 +202,7 @@ func computePercentileGroups(metrics []MetricGroup) []MetricGroup {
 				continue
 			}
 			name := baseName + suffix
-			var series []MetricSeries
+			series := make([]MetricSeries, 0)
 			for labelsJSON, points := range pSeries[i] {
 				var labelsObj interface{}
 				if json.Unmarshal([]byte(labelsJSON), &labelsObj) != nil {

@@ -54,29 +54,29 @@ func (c *GrpcAdapterClient) Close() error {
 
 // ExecuteBatch sends a batch of operations to the adapter.
 func (c *GrpcAdapterClient) ExecuteBatch(ctx context.Context, batchID string, ops []reference.Operation) ([]reference.AdapterOpResult, error) {
-	protoOps := make([]proto.Operation, 0, len(ops))
+	protoOps := make([]*proto.Operation, 0, len(ops))
 	for _, op := range ops {
 		if op.ID == "" {
 			continue
 		}
 		opType, payload := serializeOp(op.Kind)
-		protoOps = append(protoOps, proto.Operation{
-			OpID:   op.ID,
-			OpType: opType,
+		protoOps = append(protoOps, &proto.Operation{
+			OpId:    op.ID,
+			OpType:  opType,
 			Payload: payload,
 		})
 	}
 
 	resp, err := c.client.ExecuteBatch(ctx, &proto.BatchRequest{
-		BatchID: batchID,
+		BatchId: batchID,
 		Ops:     protoOps,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ExecuteBatch: %w", err)
 	}
 
-	results := make([]reference.AdapterOpResult, len(resp.Results))
-	for i, r := range resp.Results {
+	results := make([]reference.AdapterOpResult, len(resp.GetResults()))
+	for i, r := range resp.GetResults() {
 		results[i] = parseOpResult(r)
 	}
 	return results, nil
@@ -85,22 +85,23 @@ func (c *GrpcAdapterClient) ExecuteBatch(ctx context.Context, batchID string, op
 // ReadState reads all adapter state under the given key prefix.
 func (c *GrpcAdapterClient) ReadState(ctx context.Context, keyPrefix string) (map[string]*reference.RecordState, error) {
 	resp, err := c.client.ReadState(ctx, &proto.ReadStateRequest{KeyPrefix: keyPrefix})
+
 	if err != nil {
 		return nil, fmt.Errorf("ReadState: %w", err)
 	}
 
-	result := make(map[string]*reference.RecordState, len(resp.Records))
-	for _, record := range resp.Records {
+	result := make(map[string]*reference.RecordState, len(resp.GetRecords()))
+	for _, record := range resp.GetRecords() {
 		if record.Value == nil {
-			result[record.Key] = nil
+			result[record.GetKey()] = nil
 			continue
 		}
-		value := string(record.Value)
+		value := string(record.GetValue())
 		var vid uint64
-		if v, ok := record.Metadata["version_id"]; ok {
+		if v, ok := record.GetMetadata()["version_id"]; ok {
 			fmt.Sscanf(v, "%d", &vid)
 		}
-		result[record.Key] = &reference.RecordState{
+		result[record.GetKey()] = &reference.RecordState{
 			Value:     &value,
 			VersionID: vid,
 		}
@@ -183,16 +184,17 @@ func serializeOp(kind reference.OpKind) (string, []byte) {
 	}
 }
 
-func parseOpResult(r proto.OpResult) reference.AdapterOpResult {
+func parseOpResult(r *proto.OpResult) reference.AdapterOpResult {
 	result := reference.AdapterOpResult{
-		OpID:   r.OpID,
-		Status: r.Status,
+		OpID:   r.GetOpId(),
+		Status: r.GetStatus(),
 	}
-	if r.Message != "" {
-		result.Message = &r.Message
+	if r.GetMessage() != "" {
+		msg := r.GetMessage()
+		result.Message = &msg
 	}
 
-	if len(r.Payload) == 0 {
+	if len(r.GetPayload()) == 0 {
 		return result
 	}
 

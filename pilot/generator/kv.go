@@ -23,9 +23,23 @@ type BasicKvGenerator struct {
 
 // NewBasicKvGenerator creates a new BasicKvGenerator from the given params.
 func NewBasicKvGenerator(params *GenerateParams) *BasicKvGenerator {
+	p := *params
+	// Guard against zero values that would cause Intn(0) panics
+	if p.KeySpace.Count <= 0 {
+		p.KeySpace.Count = 20_000
+	}
+	if p.Index.KeyCount <= 0 {
+		p.Index.KeyCount = 50
+	}
+	if p.Value.MinLen <= 0 {
+		p.Value.MinLen = 4
+	}
+	if p.Value.MaxLen <= 0 {
+		p.Value.MaxLen = 12
+	}
 	return &BasicKvGenerator{
-		rng:    rand.New(rand.NewSource(int64(params.Seed))),
-		params: *params,
+		rng:    rand.New(rand.NewSource(int64(p.Seed))),
+		params: p,
 	}
 }
 

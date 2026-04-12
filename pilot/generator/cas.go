@@ -29,9 +29,19 @@ type CasGenerator struct {
 
 // NewCasGenerator creates a new CasGenerator from the given params.
 func NewCasGenerator(params *GenerateParams) *CasGenerator {
+	p := *params
+	if p.KeySpace.Count <= 0 {
+		p.KeySpace.Count = 20_000
+	}
+	if p.Value.MinLen <= 0 {
+		p.Value.MinLen = 4
+	}
+	if p.Value.MaxLen <= 0 {
+		p.Value.MaxLen = 12
+	}
 	return &CasGenerator{
-		rng:                 rand.New(rand.NewSource(int64(params.Seed))),
-		params:              *params,
+		rng:                 rand.New(rand.NewSource(int64(p.Seed))),
+		params:              p,
 		conflictProbability: 0.4,
 	}
 }

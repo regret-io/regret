@@ -64,7 +64,7 @@ func (a *adapterHandlers) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var items []AdapterResponse
+	items := make([]AdapterResponse, 0, len(adapters))
 	for i := range adapters {
 		items = append(items, toAdapterResponse(&adapters[i]))
 	}

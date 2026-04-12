@@ -111,7 +111,7 @@ func (h *hypothesisHandlers) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var resp []HypothesisResponse
+	resp := make([]HypothesisResponse, 0, len(items))
 	for i := range items {
 		resp = append(resp, toHypothesisResponse(&items[i]))
 	}
@@ -278,11 +278,16 @@ func (h *hypothesisHandlers) StartRun(w http.ResponseWriter, r *http.Request) {
 	genParams.SkipWarmup = skipWarmup
 	genParams.Rate = rate
 
-	// Apply stored key_space config
+	// Apply stored key_space config (preserve defaults for zero values)
 	if hyp.KeySpace != "" {
 		var ks generator.KeySpaceConfig
 		if json.Unmarshal([]byte(hyp.KeySpace), &ks) == nil {
-			genParams.KeySpace = ks
+			if ks.Count > 0 {
+				genParams.KeySpace.Count = ks.Count
+			}
+			if ks.Prefix != "" {
+				genParams.KeySpace.Prefix = ks.Prefix
+			}
 		}
 	}
 	genParams.KeySpace.Prefix = fmt.Sprintf("/%s/", id)
@@ -291,7 +296,7 @@ func (h *hypothesisHandlers) StartRun(w http.ResponseWriter, r *http.Request) {
 	var adapterClient engine.AdapterClient
 	if adapterRecord != nil {
 		addr := ""
-		if hyp.AdapterAddr != nil {
+		if hyp.AdapterAddr != nil && *hyp.AdapterAddr != "" {
 			addr = *hyp.AdapterAddr
 		} else {
 			addr = fmt.Sprintf("http://adapter-%s:9090", adapterRecord.Name)
@@ -416,7 +421,7 @@ func (h *hypothesisHandlers) GetResults(w http.ResponseWriter, r *http.Request) 
 		FinishedAt        *string `json:"finished_at,omitempty"`
 	}
 
-	var items []resultItem
+	items := make([]resultItem, 0, len(results))
 	for _, r := range results {
 		items = append(items, resultItem{
 			ID: r.ID, RunID: r.RunID, TotalBatches: r.TotalBatches,
