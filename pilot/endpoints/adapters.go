@@ -1,4 +1,4 @@
-package api
+package endpoints
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/regret-io/regret/pilot-go/storage"
+	"github.com/regret-io/regret/pilot-go/database"
 )
 
 type adapterHandlers struct {
@@ -140,7 +140,7 @@ func (a *adapterHandlers) deleteAdapterFromK8s(name string) {
 	// TODO: implement with client-go when KubeClient is wired
 }
 
-func toAdapterResponse(a *storage.AdapterRecord) AdapterResponse {
+func toAdapterResponse(a *database.AdapterRecord) AdapterResponse {
 	var env interface{}
 	if err := json.Unmarshal([]byte(a.Env), &env); err != nil {
 		env = map[string]interface{}{}

@@ -4,23 +4,21 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-
-	"github.com/regret-io/regret/pilot-go/storage"
 )
 
 // BasicKvReference is the reference model for all KV-family generators.
-// It uses PebbleStore to track reference state and verifies adapter responses.
+// It uses an internal pebbleDB to track reference state and verifies adapter responses.
 type BasicKvReference struct {
-	pebble           storage.PebbleStore
+	store            *ReferenceStore
 	hypothesisID     string
 	runID            string
 	lastSequenceKeys map[string]string
 }
 
-// NewBasicKvReference creates a new BasicKvReference backed by PebbleStore.
-func NewBasicKvReference(pebble storage.PebbleStore, hypothesisID string) *BasicKvReference {
+// NewBasicKvReference creates a new BasicKvReference backed by a ReferenceStore.
+func NewBasicKvReference(store *ReferenceStore, hypothesisID string) *BasicKvReference {
 	return &BasicKvReference{
-		pebble:           pebble,
+		store:            store,
 		hypothesisID:     hypothesisID,
 		lastSequenceKeys: make(map[string]string),
 	}
@@ -53,48 +51,48 @@ func (r *BasicKvReference) applyWrite(op *Operation, adapterVersion *uint64, ada
 			return
 		}
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
-		_ = r.pebble.RefPut(op.Kind.Key, &storage.RefEntry{
+		_ = r.store.db.refPut(op.Kind.Key, &refEntry{
 			Value: op.Kind.Value, Version: version, Ephemeral: op.Kind.Ephemeral,
 		}, op.Kind.IndexName, op.Kind.IndexKey)
 
 	case OpKindDelete:
-		_ = r.pebble.RefDelete(op.Kind.Key)
+		_ = r.store.db.refDelete(op.Kind.Key)
 
 	case OpKindDeleteRange:
 		prefix := r.runPrefix()
 		relStart := strings.TrimPrefix(op.Kind.Start, prefix)
 		relEnd := strings.TrimPrefix(op.Kind.End, prefix)
-		_ = r.pebble.RefDeleteRange(prefix, relStart, relEnd)
+		_ = r.store.db.refDeleteRange(prefix, relStart, relEnd)
 
 	case OpKindCas:
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
-		_ = r.pebble.RefPut(op.Kind.Key, &storage.RefEntry{
+		_ = r.store.db.refPut(op.Kind.Key, &refEntry{
 			Value: op.Kind.NewValue, Version: version, Ephemeral: false,
 		}, "", "")
 	}
 }
 
 // collectRefOp builds a RefOp for batched application.
-func (r *BasicKvReference) collectRefOp(op *Operation, adapterVersion *uint64) *storage.RefOp {
+func (r *BasicKvReference) collectRefOp(op *Operation, adapterVersion *uint64) *refOp {
 	switch op.Kind.Type {
 	case OpKindPut:
 		if op.Kind.Sequence {
 			return nil
 		}
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
-		return &storage.RefOp{
-			Key:       op.Kind.Key,
-			Entry:     &storage.RefEntry{Value: op.Kind.Value, Version: version, Ephemeral: op.Kind.Ephemeral},
-			IndexName: op.Kind.IndexName,
-			IndexKey:  op.Kind.IndexKey,
+		return &refOp{
+			key:       op.Kind.Key,
+			entry:     &refEntry{Value: op.Kind.Value, Version: version, Ephemeral: op.Kind.Ephemeral},
+			indexName: op.Kind.IndexName,
+			indexKey:  op.Kind.IndexKey,
 		}
 	case OpKindDelete:
-		return &storage.RefOp{Key: op.Kind.Key}
+		return &refOp{key: op.Kind.Key}
 	case OpKindCas:
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
-		return &storage.RefOp{
-			Key:   op.Kind.Key,
-			Entry: &storage.RefEntry{Value: op.Kind.NewValue, Version: version},
+		return &refOp{
+			key:   op.Kind.Key,
+			entry: &refEntry{Value: op.Kind.NewValue, Version: version},
 		}
 	default:
 		return nil
@@ -107,7 +105,7 @@ func (r *BasicKvReference) resolveVersion(key string, adapterVersion *uint64) ui
 	if adapterVersion != nil {
 		return *adapterVersion
 	}
-	entry, err := r.pebble.RefGet(key)
+	entry, err := r.store.db.refGet(key)
 	if err == nil && entry != nil {
 		return entry.Version + 1
 	}
@@ -157,30 +155,30 @@ func (r *BasicKvReference) verifyGet(
 	}
 
 	// Find the expected record based on comparison type
-	var expected *storage.KeyEntry
+	var expected *keyEntry
 	switch comparison {
 	case ComparisonEqual:
-		entry, err := r.pebble.RefGet(key)
+		entry, err := r.store.db.refGet(key)
 		if err == nil && entry != nil {
-			expected = &storage.KeyEntry{Key: key, Entry: *entry}
+			expected = &keyEntry{key: key, entry: *entry}
 		}
 	case ComparisonFloor:
-		ke, err := r.pebble.RefFloor(prefix, relKey)
+		ke, err := r.store.db.refFloor(prefix, relKey)
 		if err == nil && ke != nil {
 			expected = ke
 		}
 	case ComparisonCeiling:
-		ke, err := r.pebble.RefCeiling(prefix, relKey)
+		ke, err := r.store.db.refCeiling(prefix, relKey)
 		if err == nil && ke != nil {
 			expected = ke
 		}
 	case ComparisonLower:
-		ke, err := r.pebble.RefLower(prefix, relKey)
+		ke, err := r.store.db.refLower(prefix, relKey)
 		if err == nil && ke != nil {
 			expected = ke
 		}
 	case ComparisonHigher:
-		ke, err := r.pebble.RefHigher(prefix, relKey)
+		ke, err := r.store.db.refHigher(prefix, relKey)
 		if err == nil && ke != nil {
 			expected = ke
 		}
@@ -189,14 +187,14 @@ func (r *BasicKvReference) verifyGet(
 	compStr := comparison.String()
 
 	if expected != nil {
-		entry := &expected.Entry
-		expectedKey := expected.Key
+		entry := &expected.entry
+		expectedKey := expected.key
 
 		// Ephemeral keys may be deleted at any time (session loss)
 		// so not_found is always acceptable for them
 		if entry.Ephemeral && result.Status == OpStatusNotFound {
 			// Session might have been lost -- delete from reference to stay in sync
-			_ = r.pebble.RefDelete(expectedKey)
+			_ = r.store.db.refDelete(expectedKey)
 			return nil
 		}
 
@@ -271,7 +269,7 @@ func (r *BasicKvReference) verifyList(
 	prefix := r.runPrefix()
 	relStart := strings.TrimPrefix(start, prefix)
 	relEnd := strings.TrimPrefix(end, prefix)
-	expectedKeys, _ := r.pebble.RefRangeKeys(prefix, relStart, relEnd)
+	expectedKeys, _ := r.store.db.refRangeKeys(prefix, relStart, relEnd)
 	if expectedKeys == nil {
 		expectedKeys = []string{}
 	}
@@ -311,9 +309,9 @@ func (r *BasicKvReference) verifyRangeScan(
 	prefix := r.runPrefix()
 	relStart := strings.TrimPrefix(start, prefix)
 	relEnd := strings.TrimPrefix(end, prefix)
-	expectedEntries, _ := r.pebble.RefRangeScan(prefix, relStart, relEnd)
+	expectedEntries, _ := r.store.db.refRangeScan(prefix, relStart, relEnd)
 	if expectedEntries == nil {
-		expectedEntries = []storage.KeyEntry{}
+		expectedEntries = []keyEntry{}
 	}
 	actualRecords := result.Records
 
@@ -332,19 +330,19 @@ func (r *BasicKvReference) verifyRangeScan(
 	for i := range expectedEntries {
 		exp := &expectedEntries[i]
 		act := &actualRecords[i]
-		if exp.Key != act.Key {
+		if exp.key != act.Key {
 			return &SafetyViolation{
 				OpID:     op.ID,
 				Op:       "range_scan",
-				Expected: fmt.Sprintf("record[%d].key=%s%s", i, exp.Key, rangeInfo),
+				Expected: fmt.Sprintf("record[%d].key=%s%s", i, exp.key, rangeInfo),
 				Actual:   fmt.Sprintf("record[%d].key=%s", i, act.Key),
 			}
 		}
-		if exp.Entry.Value != act.Value {
+		if exp.entry.Value != act.Value {
 			return &SafetyViolation{
 				OpID:     op.ID,
 				Op:       "range_scan",
-				Expected: fmt.Sprintf("record[%d].value=%s%s", i, exp.Entry.Value, rangeInfo),
+				Expected: fmt.Sprintf("record[%d].value=%s%s", i, exp.entry.Value, rangeInfo),
 				Actual:   fmt.Sprintf("record[%d].value=%s", i, act.Value),
 			}
 		}
@@ -360,7 +358,7 @@ func (r *BasicKvReference) verifyIndexedGet(
 ) *SafetyViolation {
 	// Look up primary keys from index
 	endKey := indexKey + "\x00"
-	primaryKeys, _ := r.pebble.IdxList(indexName, indexKey, endKey)
+	primaryKeys, _ := r.store.db.idxList(indexName, indexKey, endKey)
 
 	if len(primaryKeys) == 0 {
 		// Reference has no index entry -- adapter should return not_found
@@ -381,7 +379,7 @@ func (r *BasicKvReference) verifyIndexedGet(
 
 	// Get first primary key's value from reference
 	primaryKey := primaryKeys[0]
-	entry, err := r.pebble.RefGet(primaryKey)
+	entry, err := r.store.db.refGet(primaryKey)
 
 	if err != nil || entry == nil {
 		// Primary key deleted but index not cleaned -- tolerate not_found
@@ -422,7 +420,7 @@ func (r *BasicKvReference) verifyIndexedList(
 	indexName, start, end string,
 	result *AdapterOpResult,
 ) *SafetyViolation {
-	expectedKeys, _ := r.pebble.IdxList(indexName, start, end)
+	expectedKeys, _ := r.store.db.idxList(indexName, start, end)
 	if expectedKeys == nil {
 		expectedKeys = []string{}
 	}
@@ -454,10 +452,10 @@ func (r *BasicKvReference) verifyIndexedRangeScan(
 	ignoreVersion bool,
 ) *SafetyViolation {
 	// Get primary keys from index, then fetch their values
-	primaryKeys, _ := r.pebble.IdxList(indexName, start, end)
-	expected := make(map[string]*storage.RefEntry)
+	primaryKeys, _ := r.store.db.idxList(indexName, start, end)
+	expected := make(map[string]*refEntry)
 	for _, pk := range primaryKeys {
-		entry, err := r.pebble.RefGet(pk)
+		entry, err := r.store.db.refGet(pk)
 		if err == nil && entry != nil {
 			expected[pk] = entry
 		}
@@ -523,7 +521,7 @@ func (r *BasicKvReference) verifyCasBatch(
 	for key, group := range casGroups {
 		// Read reference version ONCE per key (before applying any writes)
 		var refVersion uint64
-		entry, err := r.pebble.RefGet(key)
+		entry, err := r.store.db.refGet(key)
 		if err == nil && entry != nil {
 			refVersion = entry.Version
 		}
@@ -615,7 +613,7 @@ func (r *BasicKvReference) SetRunID(runID string) {
 
 func (r *BasicKvReference) Clear() {
 	prefix := r.runPrefix()
-	if err := r.pebble.RefClear(prefix); err != nil {
+	if err := r.store.db.refClear(prefix); err != nil {
 		slog.Warn("failed to clear reference state", slog.Any("error", err))
 	}
 }
@@ -686,11 +684,11 @@ func (r *BasicKvReference) ProcessResponse(
 		// Session restart: delete all ephemeral keys from reference
 		if op.Kind.Type == OpKindSessionRestart && result.Status == OpStatusOk {
 			prefix := r.runPrefix()
-			all, err := r.pebble.RefScanAll(prefix)
+			all, err := r.store.db.refScanAll(prefix)
 			if err == nil {
 				for _, ke := range all {
-					if ke.Entry.Ephemeral {
-						_ = r.pebble.RefDelete(ke.Key)
+					if ke.entry.Ephemeral {
+						_ = r.store.db.refDelete(ke.key)
 					}
 				}
 			}
@@ -698,7 +696,7 @@ func (r *BasicKvReference) ProcessResponse(
 	}
 
 	// Phase 2: Verify writes and collect ops for atomic batch commit
-	var batchOps []storage.RefOp
+	var batchOps []refOp
 	for i := range ops {
 		if i >= len(response.Results) {
 			break
@@ -711,7 +709,7 @@ func (r *BasicKvReference) ProcessResponse(
 
 		// Single CAS verification (no conflicts in this batch)
 		if op.Kind.Type == OpKindCas {
-			current, err := r.pebble.RefGet(op.Kind.Key)
+			current, err := r.store.db.refGet(op.Kind.Key)
 			var currentVersion uint64
 			if err == nil && current != nil {
 				currentVersion = current.Version
@@ -742,7 +740,7 @@ func (r *BasicKvReference) ProcessResponse(
 				prefix := r.runPrefix()
 				relStart := strings.TrimPrefix(op.Kind.Start, prefix)
 				relEnd := strings.TrimPrefix(op.Kind.End, prefix)
-				_ = r.pebble.RefDeleteRange(prefix, relStart, relEnd)
+				_ = r.store.db.refDeleteRange(prefix, relStart, relEnd)
 			} else if refOp := r.collectRefOp(op, result.VersionID); refOp != nil {
 				batchOps = append(batchOps, *refOp)
 			}
@@ -772,7 +770,7 @@ func (r *BasicKvReference) ProcessResponse(
 
 	// Apply all collected writes atomically
 	if len(batchOps) > 0 {
-		if err := r.pebble.RefApplyBatch(batchOps); err != nil {
+		if err := r.store.db.refApplyBatch(batchOps); err != nil {
 			slog.Warn("failed to apply write batch", slog.Any("error", err))
 		}
 	}
@@ -786,21 +784,21 @@ func (r *BasicKvReference) VerifyCheckpoint(
 ) []CheckpointFailure {
 	ignoreVersion := shouldIgnoreField("version_id", tolerance)
 	prefix := r.runPrefix()
-	expectedAll, _ := r.pebble.RefScanAll(prefix)
+	expectedAll, _ := r.store.db.refScanAll(prefix)
 	if expectedAll == nil {
-		expectedAll = []storage.KeyEntry{}
+		expectedAll = []keyEntry{}
 	}
 
 	var failures []CheckpointFailure
 
 	// Build expected maps
-	expectedEntries := make(map[string]*storage.RefEntry, len(expectedAll))
+	expectedEntries := make(map[string]*refEntry, len(expectedAll))
 	expectedMap := make(map[string]*RecordState, len(expectedAll))
 	for i := range expectedAll {
 		ke := &expectedAll[i]
-		expectedEntries[ke.Key] = &ke.Entry
-		val := ke.Entry.Value
-		expectedMap[ke.Key] = &RecordState{Value: &val, VersionID: ke.Entry.Version}
+		expectedEntries[ke.key] = &ke.entry
+		val := ke.entry.Value
+		expectedMap[ke.key] = &RecordState{Value: &val, VersionID: ke.entry.Version}
 	}
 
 	// Check all expected keys exist in actual
@@ -831,7 +829,7 @@ func (r *BasicKvReference) VerifyCheckpoint(
 				})
 			} else {
 				// Clean up reference -- key is confirmed gone
-				_ = r.pebble.RefDelete(key)
+				_ = r.store.db.refDelete(key)
 			}
 		}
 	}
@@ -857,13 +855,21 @@ func (r *BasicKvReference) VerifyCheckpoint(
 
 func (r *BasicKvReference) SnapshotAll() map[string]*RecordState {
 	prefix := r.runPrefix()
-	all, _ := r.pebble.RefScanAll(prefix)
+	all, _ := r.store.db.refScanAll(prefix)
 	result := make(map[string]*RecordState, len(all))
 	for _, ke := range all {
-		val := ke.Entry.Value
-		result[ke.Key] = &RecordState{Value: &val, VersionID: ke.Entry.Version}
+		val := ke.entry.Value
+		result[ke.key] = &RecordState{Value: &val, VersionID: ke.entry.Version}
 	}
 	return result
+}
+
+func (r *BasicKvReference) GetVersion(key string) (uint64, bool) {
+	entry, err := r.store.db.refGet(key)
+	if err != nil || entry == nil {
+		return 0, false
+	}
+	return entry.Version, true
 }
 
 // -- Helpers --

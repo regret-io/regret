@@ -1,4 +1,4 @@
-package api
+package endpoints
 
 import (
 	"net/http"
@@ -8,15 +8,15 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/regret-io/regret/pilot-go/chaos"
+	"github.com/regret-io/regret/pilot-go/database"
 	"github.com/regret-io/regret/pilot-go/engine"
-	"github.com/regret-io/regret/pilot-go/storage"
+	"github.com/regret-io/regret/pilot-go/eventlog"
 )
 
 // AppState holds all shared application state.
 type AppState struct {
-	Sqlite     *storage.SqliteStore
-	Pebble     storage.PebbleStore
-	Files      *storage.FileStore
+	Sqlite     *database.SqliteStore
+	Files      *eventlog.EventLog
 	Managers   *engine.ManagerRegistry
 	Chaos      *chaos.ChaosRegistry
 	KubeClient interface{} // placeholder for client-go, wire later

@@ -8,16 +8,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/regret-io/regret/pilot-go/database"
+	"github.com/regret-io/regret/pilot-go/eventlog"
 	"github.com/regret-io/regret/pilot-go/generator"
 	"github.com/regret-io/regret/pilot-go/reference"
-	"github.com/regret-io/regret/pilot-go/storage"
 )
 
 // SharedServices holds shared infrastructure passed to each HypothesisManager.
 type SharedServices struct {
-	Sqlite *storage.SqliteStore
-	Pebble storage.PebbleStore
-	Files  *storage.FileStore
+	Sqlite   *database.SqliteStore
+	RefStore *reference.ReferenceStore
+	Events   *eventlog.EventLog
 }
 
 // ManagerRegistry is the global registry of all hypothesis managers.
@@ -37,7 +38,7 @@ func NewManagerRegistry(shared SharedServices) *ManagerRegistry {
 
 // CreateFromHypothesis creates and registers a new manager for the given hypothesis.
 func (r *ManagerRegistry) CreateFromHypothesis(id, generatorName string, tolerance *string) {
-	ref := reference.CreateReference(generatorName, r.shared.Pebble, id)
+	ref := reference.CreateReference(generatorName, r.shared.RefStore, id)
 	var tol *reference.Tolerance
 	if tolerance != nil {
 		var t reference.Tolerance
@@ -106,7 +107,7 @@ func (m *HypothesisManager) StartRun(
 	ctx context.Context,
 	config ExecutionConfig,
 	genParams *generator.GenerateParams,
-	adapter *storage.AdapterRecord,
+	adapter *database.AdapterRecord,
 	adapterAddrOverride *string,
 	adapterClient AdapterClient,
 ) (string, *ProgressInfo, error) {
@@ -120,7 +121,7 @@ func (m *HypothesisManager) StartRun(
 	}
 
 	if m.reference == nil {
-		m.reference = reference.CreateReference(m.GeneratorName, m.shared.Pebble, m.HypothesisID)
+		m.reference = reference.CreateReference(m.GeneratorName, m.shared.RefStore, m.HypothesisID)
 	}
 
 	var runID string
@@ -188,9 +189,8 @@ func (m *HypothesisManager) StartRun(
 		Ctx:            runCtx,
 		Cancel:         cancel,
 		Progress:       progress,
-		Files:          m.shared.Files,
+		Files:          m.shared.Events,
 		Sqlite:         m.shared.Sqlite,
-		Pebble:         m.shared.Pebble,
 		AdapterClient:  adapterClient,
 	}
 

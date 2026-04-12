@@ -8,9 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/regret-io/regret/pilot-go/database"
+	"github.com/regret-io/regret/pilot-go/eventlog"
 	"github.com/regret-io/regret/pilot-go/generator"
 	"github.com/regret-io/regret/pilot-go/reference"
-	"github.com/regret-io/regret/pilot-go/storage"
 )
 
 // ExecutionConfig configures the executor.
@@ -74,9 +75,8 @@ type Executor struct {
 	Cancel        context.CancelFunc
 	Progress      *ProgressInfo
 	ProgressMu    sync.RWMutex
-	Files         *storage.FileStore
-	Sqlite        *storage.SqliteStore
-	Pebble        storage.PebbleStore
+	Files         *eventlog.EventLog
+	Sqlite        *database.SqliteStore
 	AdapterClient AdapterClient
 }
 
@@ -99,7 +99,7 @@ func (e *Executor) Run() (reference.ReferenceModel, StopReason) {
 	now := Now()
 	stopReason := string(result)
 	finishedAt := now
-	resultRecord := &storage.HypothesisResult{
+	resultRecord := &database.HypothesisResult{
 		ID:                fmt.Sprintf("res-%d", time.Now().UnixNano()),
 		HypothesisID:      e.HypothesisID,
 		RunID:             e.RunID,
@@ -189,7 +189,7 @@ func (e *Executor) runInner() StopReason {
 
 	// Update key prefix to include run_id, then create generator
 	e.GenerateParams.KeySpace.Prefix = fmt.Sprintf("/ref/%s/%s/", e.HypothesisID, e.RunID)
-	gen := generator.CreateGenerator(e.GenerateParams, e.Pebble)
+	gen := generator.CreateGenerator(e.GenerateParams, e.Reference)
 
 	runStart := time.Now()
 	var durationSecs uint64

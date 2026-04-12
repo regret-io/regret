@@ -1,4 +1,4 @@
-package storage
+package eventlog
 
 import (
 	"archive/zip"
@@ -13,31 +13,31 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// FileStore
+// EventLog
 // ---------------------------------------------------------------------------
 
-type FileStore struct {
+type EventLog struct {
 	basePath string
 }
 
-func NewFileStore(basePath string) *FileStore {
-	return &FileStore{basePath: basePath}
+func NewEventLog(basePath string) *EventLog {
+	return &EventLog{basePath: basePath}
 }
 
 // ---------------------------------------------------------------------------
 // Hypothesis directory
 // ---------------------------------------------------------------------------
 
-func (f *FileStore) hypothesisDir(id string) string {
-	return filepath.Join(f.basePath, "hypothesis", id)
+func (f *EventLog) hypothesisDir(id string) string {
+	return filepath.Join(f.basePath, "log", "hypothesis", id)
 }
 
-func (f *FileStore) CreateHypothesisDir(id string) error {
+func (f *EventLog) CreateHypothesisDir(id string) error {
 	dir := f.hypothesisDir(id)
 	return os.MkdirAll(dir, 0o755)
 }
 
-func (f *FileStore) DeleteHypothesisDir(id string) error {
+func (f *EventLog) DeleteHypothesisDir(id string) error {
 	dir := f.hypothesisDir(id)
 	return os.RemoveAll(dir)
 }
@@ -46,11 +46,11 @@ func (f *FileStore) DeleteHypothesisDir(id string) error {
 // Hypothesis events
 // ---------------------------------------------------------------------------
 
-func (f *FileStore) eventsPath(id string) string {
+func (f *EventLog) eventsPath(id string) string {
 	return filepath.Join(f.hypothesisDir(id), "events.jsonl")
 }
 
-func (f *FileStore) AppendEvent(id, eventJSON string) error {
+func (f *EventLog) AppendEvent(id, eventJSON string) error {
 	if err := f.CreateHypothesisDir(id); err != nil {
 		return fmt.Errorf("create hypothesis dir: %w", err)
 	}
@@ -66,7 +66,7 @@ func (f *FileStore) AppendEvent(id, eventJSON string) error {
 	return err
 }
 
-func (f *FileStore) ReadEvents(id string, runID, eventType, since *string, last *int) ([]map[string]any, error) {
+func (f *EventLog) ReadEvents(id string, runID, eventType, since *string, last *int) ([]map[string]any, error) {
 	fp := f.eventsPath(id)
 
 	var lines []string
@@ -86,7 +86,7 @@ func (f *FileStore) ReadEvents(id string, runID, eventType, since *string, last 
 	return filterEvents(lines, runID, eventType, since), nil
 }
 
-func (f *FileStore) ReadMergedEvents(id string, runID, eventType, since *string, last *int) ([]map[string]any, error) {
+func (f *EventLog) ReadMergedEvents(id string, runID, eventType, since *string, last *int) ([]map[string]any, error) {
 	hyp, err := f.ReadEvents(id, runID, eventType, since, last)
 	if err != nil {
 		return nil, err
@@ -110,12 +110,12 @@ func (f *FileStore) ReadMergedEvents(id string, runID, eventType, since *string,
 // Chaos events
 // ---------------------------------------------------------------------------
 
-func (f *FileStore) chaosEventsPath() string {
-	return filepath.Join(f.basePath, "chaos", "events.jsonl")
+func (f *EventLog) chaosEventsPath() string {
+	return filepath.Join(f.basePath, "log", "chaos", "events.jsonl")
 }
 
-func (f *FileStore) AppendChaosEvent(eventJSON string) error {
-	dir := filepath.Join(f.basePath, "chaos")
+func (f *EventLog) AppendChaosEvent(eventJSON string) error {
+	dir := filepath.Join(f.basePath, "log", "chaos")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create chaos dir: %w", err)
 	}
@@ -131,7 +131,7 @@ func (f *FileStore) AppendChaosEvent(eventJSON string) error {
 	return err
 }
 
-func (f *FileStore) ReadChaosEvents(since *string) ([]map[string]any, error) {
+func (f *EventLog) ReadChaosEvents(since *string) ([]map[string]any, error) {
 	fp := f.chaosEventsPath()
 	lines, err := readAllLines(fp)
 	if err != nil {
@@ -147,7 +147,7 @@ func (f *FileStore) ReadChaosEvents(since *string) ([]map[string]any, error) {
 // Checkpoints
 // ---------------------------------------------------------------------------
 
-func (f *FileStore) WriteCheckpoint(id string, expect, actual any) error {
+func (f *EventLog) WriteCheckpoint(id string, expect, actual any) error {
 	dir := f.hypothesisDir(id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create hypothesis dir: %w", err)
@@ -176,7 +176,7 @@ func (f *FileStore) WriteCheckpoint(id string, expect, actual any) error {
 // Bundle (ZIP)
 // ---------------------------------------------------------------------------
 
-func (f *FileStore) CreateBundle(id string, runID *string) ([]byte, error) {
+func (f *EventLog) CreateBundle(id string, runID *string) ([]byte, error) {
 	dir := f.hypothesisDir(id)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil, fmt.Errorf("hypothesis directory not found: %s", id)
@@ -230,7 +230,7 @@ func (f *FileStore) CreateBundle(id string, runID *string) ([]byte, error) {
 }
 
 // ---------------------------------------------------------------------------
-// TailLines — read last N lines from a file by seeking backwards in chunks.
+// TailLines -- read last N lines from a file by seeking backwards in chunks.
 // ---------------------------------------------------------------------------
 
 func TailLines(path string, n int) ([]string, error) {

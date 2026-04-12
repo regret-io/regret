@@ -1,8 +1,6 @@
 package reference
 
-import (
-	"github.com/regret-io/regret/pilot-go/storage"
-)
+// No external imports needed -- Pebble is internal to this package.
 
 // RecordState is the unified record state for checkpoint comparison.
 type RecordState struct {
@@ -196,9 +194,12 @@ type ReferenceModel interface {
 
 	// SnapshotAll returns all reference state as a map.
 	SnapshotAll() map[string]*RecordState
+
+	// GetVersion returns the current version for a key (used by CAS generators).
+	GetVersion(key string) (uint64, bool)
 }
 
-// CreateReference creates a reference model backed by PebbleDB.
-func CreateReference(generatorName string, pebble storage.PebbleStore, hypothesisID string) ReferenceModel {
-	return NewBasicKvReference(pebble, hypothesisID)
+// CreateReference creates a reference model backed by a ReferenceStore.
+func CreateReference(generatorName string, store *ReferenceStore, hypothesisID string) ReferenceModel {
+	return NewBasicKvReference(store, hypothesisID)
 }

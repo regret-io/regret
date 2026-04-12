@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/regret-io/regret/pilot-go/storage"
+	"github.com/regret-io/regret/pilot-go/database"
 )
 
 const (
@@ -69,7 +69,7 @@ func MetricsURLFromAdapterAddr(addr string) string {
 
 // RunScraper runs the scraper loop until ctx is cancelled. Errors from
 // individual scrapes are logged and ignored.
-func RunScraper(ctx context.Context, cfg ScraperConfig, sqlite *storage.SqliteStore) {
+func RunScraper(ctx context.Context, cfg ScraperConfig, sqlite *database.SqliteStore) {
 	client := &http.Client{Timeout: cfg.RequestTimeout}
 
 	slog.Info("starting adapter metrics scraper",
@@ -98,7 +98,7 @@ func RunScraper(ctx context.Context, cfg ScraperConfig, sqlite *storage.SqliteSt
 	}
 }
 
-func scrapeOnce(ctx context.Context, client *http.Client, cfg *ScraperConfig, sqlite *storage.SqliteStore) error {
+func scrapeOnce(ctx context.Context, client *http.Client, cfg *ScraperConfig, sqlite *database.SqliteStore) error {
 	ts := time.Now().UnixMilli()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.MetricsURL, nil)
@@ -126,12 +126,12 @@ func scrapeOnce(ctx context.Context, client *http.Client, cfg *ScraperConfig, sq
 		return nil
 	}
 
-	var samples []storage.MetricSample
+	var samples []database.MetricSample
 	for _, p := range parsed {
 		if !strings.HasPrefix(p.Metric, "regret_adapter_") {
 			continue
 		}
-		samples = append(samples, storage.MetricSample{
+		samples = append(samples, database.MetricSample{
 			HypothesisID: cfg.HypothesisID,
 			RunID:        cfg.RunID,
 			Ts:           ts,

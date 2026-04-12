@@ -20,8 +20,8 @@ import (
 // Dependency interfaces
 // ---------------------------------------------------------------------------
 
-// FileStore persists chaos events to a JSONL file.
-type FileStore interface {
+// EventLog persists chaos events to a JSONL file.
+type EventLog interface {
 	AppendChaosEvent(eventJSON string) error
 }
 
@@ -54,13 +54,13 @@ type chaosInjectionHandle struct {
 type ChaosRegistry struct {
 	mu         sync.RWMutex
 	injections map[string]*chaosInjectionHandle
-	files      FileStore
+	files      EventLog
 	sqlite     SqliteStore
 	managers   ManagerRegistry
 }
 
 // NewChaosRegistry creates a new ChaosRegistry.
-func NewChaosRegistry(files FileStore, sqlite SqliteStore, managers ManagerRegistry) *ChaosRegistry {
+func NewChaosRegistry(files EventLog, sqlite SqliteStore, managers ManagerRegistry) *ChaosRegistry {
 	return &ChaosRegistry{
 		injections: make(map[string]*chaosInjectionHandle),
 		files:      files,
@@ -171,7 +171,7 @@ func runInjection(
 	ctx context.Context,
 	injectionID string,
 	scenario *ChaosScenario,
-	files FileStore,
+	files EventLog,
 	sqlite SqliteStore,
 	managers ManagerRegistry,
 ) error {
@@ -232,7 +232,7 @@ func runActionLoop(
 	clientset kubernetes.Interface,
 	namespace string,
 	action *ChaosAction,
-	files FileStore,
+	files EventLog,
 	managers ManagerRegistry,
 ) error {
 	// upgrade_test has its own multi-step lifecycle.
@@ -327,7 +327,7 @@ func executeAndLog(
 	clientset kubernetes.Interface,
 	namespace string,
 	action *ChaosAction,
-	files FileStore,
+	files EventLog,
 ) {
 	targetPods, err := ExecuteAction(ctx, clientset, namespace, action)
 	if err != nil {
@@ -351,7 +351,7 @@ func recoverIfNeeded(
 	namespace string,
 	action *ChaosAction,
 	injectionID, scenarioName string,
-	files FileStore,
+	files EventLog,
 ) {
 	switch action.ActionType {
 	case "network_partition", "network_delay", "network_loss":
@@ -383,7 +383,7 @@ func runUpgradeTest(
 	ctx context.Context,
 	injectionID, scenarioName string,
 	action *ChaosAction,
-	files FileStore,
+	files EventLog,
 	managers ManagerRegistry,
 ) error {
 	hypothesisID, _ := paramString(action.Params, "hypothesis_id")

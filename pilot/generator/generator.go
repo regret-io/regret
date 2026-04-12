@@ -1,8 +1,10 @@
 package generator
 
-import (
-	"github.com/regret-io/regret/pilot-go/storage"
-)
+// VersionLookup provides version information for CAS operations.
+// The reference model implements this interface.
+type VersionLookup interface {
+	GetVersion(key string) (uint64, bool)
+}
 
 // Generator produces batches of origin ops.
 type Generator interface {
@@ -199,19 +201,15 @@ type WeightEntry struct {
 }
 
 // CreateGenerator creates the appropriate generator for the given params.
-func CreateGenerator(params *GenerateParams, pebble storage.PebbleStore) Generator {
+func CreateGenerator(params *GenerateParams, vl VersionLookup) Generator {
 	switch params.Generator {
 	case "kv-cas":
 		g := NewCasGenerator(params)
-		if pebble != nil {
-			g.pebble = pebble
+		if vl != nil {
+			g.versionLookup = vl
 		}
 		return g
 	default:
-		g := NewBasicKvGenerator(params)
-		if pebble != nil {
-			g.pebble = pebble
-		}
-		return g
+		return NewBasicKvGenerator(params)
 	}
 }

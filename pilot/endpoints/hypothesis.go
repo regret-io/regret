@@ -1,4 +1,4 @@
-package api
+package endpoints
 
 import (
 	"context"
@@ -13,9 +13,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/regret-io/regret/pilot-go/adapter"
+	"github.com/regret-io/regret/pilot-go/database"
 	"github.com/regret-io/regret/pilot-go/engine"
 	"github.com/regret-io/regret/pilot-go/generator"
-	"github.com/regret-io/regret/pilot-go/storage"
 )
 
 type hypothesisHandlers struct {
@@ -488,9 +488,9 @@ func (h *hypothesisHandlers) GetBundle(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 // storageAdapterRecord is a type alias to avoid import cycles.
-type storageAdapterRecord = storage.AdapterRecord
+type storageAdapterRecord = database.AdapterRecord
 
-func toHypothesisResponse(hyp *storage.Hypothesis) HypothesisResponse {
+func toHypothesisResponse(hyp *database.Hypothesis) HypothesisResponse {
 	resp := HypothesisResponse{
 		ID:              hyp.ID,
 		Name:            hyp.Name,

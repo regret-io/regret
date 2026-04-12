@@ -1,4 +1,4 @@
-package storage
+package reference
 
 import (
 	"encoding/json"
@@ -8,17 +8,13 @@ import (
 	"github.com/cockroachdb/pebble"
 )
 
-// pebbleDB is the concrete PebbleStore implementation.
+// pebbleDB is the concrete Pebble-backed store for reference state.
 type pebbleDB struct {
 	db *pebble.DB
 }
 
-// Compile-time check that pebbleDB implements PebbleStore.
-var _ PebbleStore = (*pebbleDB)(nil)
-
-// NewPebbleStore opens (or creates) a Pebble database at the given path
-// and returns a PebbleStore backed by it.
-func NewPebbleStore(path string) (PebbleStore, error) {
+// openPebble opens (or creates) a Pebble database at the given path.
+func openPebble(path string) (*pebbleDB, error) {
 	db, err := pebble.Open(path, &pebble.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("open pebble: %w", err)
@@ -26,7 +22,7 @@ func NewPebbleStore(path string) (PebbleStore, error) {
 	return &pebbleDB{db: db}, nil
 }
 
-func (p *pebbleDB) Close() error {
+func (p *pebbleDB) close() error {
 	return p.db.Close()
 }
 
@@ -44,12 +40,12 @@ func stripRefPrefix(k []byte) string {
 	return string(k[len(refPrefix):])
 }
 
-func marshalRef(e *RefEntry) ([]byte, error) {
+func marshalRef(e *refEntry) ([]byte, error) {
 	return json.Marshal(e)
 }
 
-func unmarshalRef(data []byte) (*RefEntry, error) {
-	var e RefEntry
+func unmarshalRef(data []byte) (*refEntry, error) {
+	var e refEntry
 	if err := json.Unmarshal(data, &e); err != nil {
 		return nil, err
 	}
@@ -60,9 +56,9 @@ func unmarshalRef(data []byte) (*RefEntry, error) {
 // Ref state methods
 // ---------------------------------------------------------------------------
 
-func (p *pebbleDB) RefPut(key string, entry *RefEntry, indexName, indexKey string) error {
+func (p *pebbleDB) refPut(key string, entry *refEntry, indexName, indexKey string) error {
 	if indexName == "" {
-		// Simple put — no batch needed
+		// Simple put -- no batch needed
 		data, err := marshalRef(entry)
 		if err != nil {
 			return fmt.Errorf("marshal ref: %w", err)
@@ -80,14 +76,14 @@ func (p *pebbleDB) RefPut(key string, entry *RefEntry, indexName, indexKey strin
 	}
 	// Delete old index entries for this primary key, then add new one
 	p.batchIdxDeletePrimary(batch, indexName, key)
-	idxKey := idxKey(indexName, indexKey, key)
-	if err := batch.Set(idxKey, nil, nil); err != nil {
+	ik := idxKey(indexName, indexKey, key)
+	if err := batch.Set(ik, nil, nil); err != nil {
 		return fmt.Errorf("batch set idx: %w", err)
 	}
 	return batch.Commit(pebble.Sync)
 }
 
-func (p *pebbleDB) RefGet(key string) (*RefEntry, error) {
+func (p *pebbleDB) refGet(key string) (*refEntry, error) {
 	data, closer, err := p.db.Get(refKey(key))
 	if err != nil {
 		if err == pebble.ErrNotFound {
@@ -100,12 +96,12 @@ func (p *pebbleDB) RefGet(key string) (*RefEntry, error) {
 	return unmarshalRef(data)
 }
 
-func (p *pebbleDB) RefDelete(key string) error {
+func (p *pebbleDB) refDelete(key string) error {
 	return p.db.Delete(refKey(key), pebble.Sync)
 }
 
-func (p *pebbleDB) RefDeleteRange(prefix, start, end string) error {
-	keys, err := p.RefRangeKeys(prefix, start, end)
+func (p *pebbleDB) refDeleteRange(prefix, start, end string) error {
+	keys, err := p.refRangeKeys(prefix, start, end)
 	if err != nil {
 		return err
 	}
@@ -121,30 +117,30 @@ func (p *pebbleDB) RefDeleteRange(prefix, start, end string) error {
 	return batch.Commit(pebble.Sync)
 }
 
-func (p *pebbleDB) RefApplyBatch(ops []RefOp) error {
+func (p *pebbleDB) refApplyBatch(ops []refOp) error {
 	if len(ops) == 0 {
 		return nil
 	}
 	batch := p.db.NewBatch()
 	for _, op := range ops {
-		if op.Entry != nil {
+		if op.entry != nil {
 			// Put
-			data, err := marshalRef(op.Entry)
+			data, err := marshalRef(op.entry)
 			if err != nil {
 				return fmt.Errorf("marshal ref: %w", err)
 			}
-			if err := batch.Set(refKey(op.Key), data, nil); err != nil {
+			if err := batch.Set(refKey(op.key), data, nil); err != nil {
 				return fmt.Errorf("batch set: %w", err)
 			}
-			if op.IndexName != "" {
-				p.batchIdxDeletePrimary(batch, op.IndexName, op.Key)
-				if err := batch.Set(idxKey(op.IndexName, op.IndexKey, op.Key), nil, nil); err != nil {
+			if op.indexName != "" {
+				p.batchIdxDeletePrimary(batch, op.indexName, op.key)
+				if err := batch.Set(idxKey(op.indexName, op.indexKey, op.key), nil, nil); err != nil {
 					return fmt.Errorf("batch set idx: %w", err)
 				}
 			}
 		} else {
 			// Delete
-			if err := batch.Delete(refKey(op.Key), nil); err != nil {
+			if err := batch.Delete(refKey(op.key), nil); err != nil {
 				return fmt.Errorf("batch delete: %w", err)
 			}
 		}
@@ -173,7 +169,7 @@ func (p *pebbleDB) batchIdxDeletePrimary(batch *pebble.Batch, indexName, primary
 	}
 }
 
-func (p *pebbleDB) RefRangeKeys(prefix, start, end string) ([]string, error) {
+func (p *pebbleDB) refRangeKeys(prefix, start, end string) ([]string, error) {
 	lower := refKey(prefix + start)
 	upper := refKey(prefix + end)
 
@@ -193,7 +189,7 @@ func (p *pebbleDB) RefRangeKeys(prefix, start, end string) ([]string, error) {
 	return keys, iter.Error()
 }
 
-func (p *pebbleDB) RefRangeScan(prefix, start, end string) ([]KeyEntry, error) {
+func (p *pebbleDB) refRangeScan(prefix, start, end string) ([]keyEntry, error) {
 	lower := refKey(prefix + start)
 	upper := refKey(prefix + end)
 
@@ -206,7 +202,7 @@ func (p *pebbleDB) RefRangeScan(prefix, start, end string) ([]KeyEntry, error) {
 	}
 	defer iter.Close()
 
-	var out []KeyEntry
+	var out []keyEntry
 	for iter.First(); iter.Valid(); iter.Next() {
 		val, err := iter.ValueAndErr()
 		if err != nil {
@@ -216,15 +212,15 @@ func (p *pebbleDB) RefRangeScan(prefix, start, end string) ([]KeyEntry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("ref range scan unmarshal: %w", err)
 		}
-		out = append(out, KeyEntry{
-			Key:   stripRefPrefix(iter.Key()),
-			Entry: *entry,
+		out = append(out, keyEntry{
+			key:   stripRefPrefix(iter.Key()),
+			entry: *entry,
 		})
 	}
 	return out, iter.Error()
 }
 
-func (p *pebbleDB) RefFloor(prefix, target string) (*KeyEntry, error) {
+func (p *pebbleDB) refFloor(prefix, target string) (*keyEntry, error) {
 	fullTarget := refKey(prefix + target)
 	prefixLower := refKey(prefix)
 	prefixUpper := appendByte(refKey(prefix), 0xff)
@@ -248,7 +244,7 @@ func (p *pebbleDB) RefFloor(prefix, target string) (*KeyEntry, error) {
 			return keyEntryFromIter(iter)
 		}
 	} else {
-		// Past all keys — last one is the floor.
+		// Past all keys -- last one is the floor.
 		if iter.Last() {
 			return keyEntryFromIter(iter)
 		}
@@ -256,7 +252,7 @@ func (p *pebbleDB) RefFloor(prefix, target string) (*KeyEntry, error) {
 	return nil, iter.Error()
 }
 
-func (p *pebbleDB) RefCeiling(prefix, target string) (*KeyEntry, error) {
+func (p *pebbleDB) refCeiling(prefix, target string) (*keyEntry, error) {
 	fullTarget := refKey(prefix + target)
 	prefixLower := refKey(prefix)
 	prefixUpper := appendByte(refKey(prefix), 0xff)
@@ -276,7 +272,7 @@ func (p *pebbleDB) RefCeiling(prefix, target string) (*KeyEntry, error) {
 	return nil, iter.Error()
 }
 
-func (p *pebbleDB) RefLower(prefix, target string) (*KeyEntry, error) {
+func (p *pebbleDB) refLower(prefix, target string) (*keyEntry, error) {
 	fullTarget := refKey(prefix + target)
 	prefixLower := refKey(prefix)
 
@@ -295,7 +291,7 @@ func (p *pebbleDB) RefLower(prefix, target string) (*KeyEntry, error) {
 	return nil, iter.Error()
 }
 
-func (p *pebbleDB) RefHigher(prefix, target string) (*KeyEntry, error) {
+func (p *pebbleDB) refHigher(prefix, target string) (*keyEntry, error) {
 	fullTarget := refKey(prefix + target)
 	prefixLower := refKey(prefix)
 	prefixUpper := appendByte(refKey(prefix), 0xff)
@@ -321,7 +317,7 @@ func (p *pebbleDB) RefHigher(prefix, target string) (*KeyEntry, error) {
 	return nil, iter.Error()
 }
 
-func (p *pebbleDB) RefClear(prefix string) error {
+func (p *pebbleDB) refClear(prefix string) error {
 	fullPrefix := refKey(prefix)
 	upper := appendByte(fullPrefix, 0xff)
 
@@ -350,7 +346,7 @@ func (p *pebbleDB) RefClear(prefix string) error {
 	return nil
 }
 
-func (p *pebbleDB) RefScanAll(prefix string) ([]KeyEntry, error) {
+func (p *pebbleDB) refScanAll(prefix string) ([]keyEntry, error) {
 	fullPrefix := refKey(prefix)
 	upper := appendByte(fullPrefix, 0xff)
 
@@ -363,7 +359,7 @@ func (p *pebbleDB) RefScanAll(prefix string) ([]KeyEntry, error) {
 	}
 	defer iter.Close()
 
-	var out []KeyEntry
+	var out []keyEntry
 	for iter.First(); iter.Valid(); iter.Next() {
 		val, err := iter.ValueAndErr()
 		if err != nil {
@@ -373,9 +369,9 @@ func (p *pebbleDB) RefScanAll(prefix string) ([]KeyEntry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("ref scan all unmarshal: %w", err)
 		}
-		out = append(out, KeyEntry{
-			Key:   stripRefPrefix(iter.Key()),
-			Entry: *entry,
+		out = append(out, keyEntry{
+			key:   stripRefPrefix(iter.Key()),
+			entry: *entry,
 		})
 	}
 	return out, iter.Error()
@@ -385,7 +381,7 @@ func (p *pebbleDB) RefScanAll(prefix string) ([]KeyEntry, error) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-func keyEntryFromIter(iter *pebble.Iterator) (*KeyEntry, error) {
+func keyEntryFromIter(iter *pebble.Iterator) (*keyEntry, error) {
 	val, err := iter.ValueAndErr()
 	if err != nil {
 		return nil, fmt.Errorf("iter value: %w", err)
@@ -394,9 +390,9 @@ func keyEntryFromIter(iter *pebble.Iterator) (*KeyEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("iter unmarshal: %w", err)
 	}
-	return &KeyEntry{
-		Key:   stripRefPrefix(iter.Key()),
-		Entry: *entry,
+	return &keyEntry{
+		key:   stripRefPrefix(iter.Key()),
+		entry: *entry,
 	}, nil
 }
 
@@ -418,11 +414,11 @@ func idxKey(indexName, indexKey, primaryKey string) []byte {
 	return []byte(idxPrefix + indexName + "\x00" + indexKey + "\x00" + primaryKey)
 }
 
-func (p *pebbleDB) IdxPut(indexName, indexKey, primaryKey string) error {
+func (p *pebbleDB) idxPut(indexName, indexKey, primaryKey string) error {
 	return p.db.Set(idxKey(indexName, indexKey, primaryKey), []byte{}, pebble.Sync)
 }
 
-func (p *pebbleDB) IdxDeletePrimary(indexName, primaryKey string) error {
+func (p *pebbleDB) idxDeletePrimary(indexName, primaryKey string) error {
 	prefix := []byte(idxPrefix + indexName + "\x00")
 	upper := appendByte(prefix, 0xff)
 
@@ -452,7 +448,7 @@ func (p *pebbleDB) IdxDeletePrimary(indexName, primaryKey string) error {
 	return batch.Commit(pebble.Sync)
 }
 
-func (p *pebbleDB) IdxList(indexName, start, end string) ([]string, error) {
+func (p *pebbleDB) idxList(indexName, start, end string) ([]string, error) {
 	lower := []byte(idxPrefix + indexName + "\x00" + start)
 	upper := []byte(idxPrefix + indexName + "\x00" + end)
 
@@ -480,7 +476,7 @@ func (p *pebbleDB) IdxList(indexName, start, end string) ([]string, error) {
 	return out, iter.Error()
 }
 
-func (p *pebbleDB) IdxClear(indexName string) error {
+func (p *pebbleDB) idxClear(indexName string) error {
 	prefix := []byte(idxPrefix + indexName + "\x00")
 	upper := appendByte(prefix, 0xff)
 

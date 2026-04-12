@@ -1,4 +1,4 @@
-package api
+package endpoints
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/regret-io/regret/pilot-go/storage"
+	"github.com/regret-io/regret/pilot-go/database"
 )
 
 type generatorHandlers struct {
@@ -141,7 +141,7 @@ func (g *generatorHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func toGeneratorResponse(g *storage.GeneratorRecord) GeneratorResponse {
+func toGeneratorResponse(g *database.GeneratorRecord) GeneratorResponse {
 	var workload interface{}
 	if err := json.Unmarshal([]byte(g.Workload), &workload); err != nil {
 		workload = map[string]interface{}{}

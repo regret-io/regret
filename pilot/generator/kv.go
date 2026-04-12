@@ -3,8 +3,6 @@ package generator
 import (
 	"fmt"
 	"math/rand"
-
-	"github.com/regret-io/regret/pilot-go/storage"
 )
 
 // keyPadding is the width for zero-padded numeric keys.
@@ -14,7 +12,6 @@ const keyPadding = 20
 type BasicKvGenerator struct {
 	rng              *rand.Rand
 	params           GenerateParams
-	pebble           storage.PebbleStore
 	indexKeys        []string
 	sequencePrefixes []string
 	opCounter        int

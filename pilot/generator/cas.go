@@ -3,8 +3,6 @@ package generator
 import (
 	"fmt"
 	"math/rand"
-
-	"github.com/regret-io/regret/pilot-go/storage"
 )
 
 // CasGenerator generates CAS (compare-and-swap) correctness test workloads.
@@ -16,12 +14,12 @@ import (
 //	For N ops targeting the same key+version in one batch,
 //	exactly 1 succeeds (Ok) and N-1 fail (VersionMismatch).
 //
-// Versions are read from the PebbleDB reference store at batch-generation time.
+// Versions are read from the reference store via VersionLookup at batch-generation time.
 // The winner's returned version feeds the next batch.
 type CasGenerator struct {
 	rng                 *rand.Rand
 	params              GenerateParams
-	pebble              storage.PebbleStore
+	versionLookup       VersionLookup
 	opCounter           int
 	warmupCursor        int
 	conflictProbability float64
@@ -81,12 +79,11 @@ func (g *CasGenerator) GenBatch(count int) []OriginOp {
 
 		newValue := g.randomValue()
 
-		// Look up current version from PebbleDB reference
+		// Look up current version from reference store
 		var currentVersion uint64
-		if g.pebble != nil {
-			entry, err := g.pebble.RefGet(key)
-			if err == nil && entry != nil {
-				currentVersion = entry.Version
+		if g.versionLookup != nil {
+			if v, ok := g.versionLookup.GetVersion(key); ok {
+				currentVersion = v
 			}
 		}
 

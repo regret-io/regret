@@ -1,4 +1,4 @@
-package api
+package endpoints
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	chaospkg "github.com/regret-io/regret/pilot-go/chaos"
-	"github.com/regret-io/regret/pilot-go/storage"
+	"github.com/regret-io/regret/pilot-go/database"
 )
 
 type chaosHandlers struct {
@@ -272,7 +272,7 @@ func (c *chaosHandlers) ChaosEvents(w http.ResponseWriter, r *http.Request) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-func scenarioToResponse(r *storage.ChaosScenarioRecord) ScenarioResponse {
+func scenarioToResponse(r *database.ChaosScenarioRecord) ScenarioResponse {
 	var actions []json.RawMessage
 	_ = json.Unmarshal([]byte(r.Actions), &actions)
 	return ScenarioResponse{
