@@ -59,6 +59,19 @@ type PebbleStore interface {
 
 	// IdxClear removes all index entries for a given index name.
 	IdxClear(indexName string) error
+
+	// RefBatch creates a new WriteBatch for atomic writes.
+	RefBatch() WriteBatch
+}
+
+// WriteBatch accumulates writes for atomic commit.
+type WriteBatch interface {
+	// Put stores a reference entry in the batch.
+	Put(key string, entry *RefEntry)
+	// Delete removes a reference entry in the batch.
+	Delete(key string)
+	// Commit atomically applies all batched writes.
+	Commit() error
 }
 
 // KeyEntry is a key-entry pair returned by range operations.

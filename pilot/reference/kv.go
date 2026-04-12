@@ -44,15 +44,22 @@ func shouldIgnoreField(field string, tolerance *Tolerance) bool {
 	return false
 }
 
-// applyWrite applies a successful write to the reference state.
+// applyWrite applies a successful write to the reference state (unbatched, for CAS conflict path).
 // Uses the adapter's returned version_id and key when available.
 func (r *BasicKvReference) applyWrite(op *Operation, adapterVersion *uint64, adapterKey *string) {
 	switch op.Kind.Type {
 	case OpKindPut:
+		if op.Kind.Sequence {
+			return
+		}
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
 		_ = r.pebble.RefPut(op.Kind.Key, &storage.RefEntry{
-			Value: op.Kind.Value, Version: version, Ephemeral: false,
+			Value: op.Kind.Value, Version: version, Ephemeral: op.Kind.Ephemeral,
 		})
+		if op.Kind.IndexName != "" {
+			_ = r.pebble.IdxDeletePrimary(op.Kind.IndexName, op.Kind.Key)
+			_ = r.pebble.IdxPut(op.Kind.IndexName, op.Kind.IndexKey, op.Kind.Key)
+		}
 
 	case OpKindDelete:
 		_ = r.pebble.RefDelete(op.Kind.Key)
@@ -73,26 +80,45 @@ func (r *BasicKvReference) applyWrite(op *Operation, adapterVersion *uint64, ada
 		_ = r.pebble.RefPut(op.Kind.Key, &storage.RefEntry{
 			Value: op.Kind.NewValue, Version: version, Ephemeral: false,
 		})
+	}
+}
 
-	case OpKindEphemeralPut:
+// applyWriteBatch applies a successful write to a pebble batch for atomic commit.
+// Index operations still go directly since they use a separate key namespace.
+func (r *BasicKvReference) applyWriteBatch(batch storage.WriteBatch, op *Operation, adapterVersion *uint64, adapterKey *string) {
+	switch op.Kind.Type {
+	case OpKindPut:
+		if op.Kind.Sequence {
+			return
+		}
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
-		_ = r.pebble.RefPut(op.Kind.Key, &storage.RefEntry{
-			Value: op.Kind.Value, Version: version, Ephemeral: true,
+		batch.Put(op.Kind.Key, &storage.RefEntry{
+			Value: op.Kind.Value, Version: version, Ephemeral: op.Kind.Ephemeral,
 		})
+		if op.Kind.IndexName != "" {
+			_ = r.pebble.IdxDeletePrimary(op.Kind.IndexName, op.Kind.Key)
+			_ = r.pebble.IdxPut(op.Kind.IndexName, op.Kind.IndexKey, op.Kind.Key)
+		}
 
-	case OpKindIndexedPut:
+	case OpKindDelete:
+		batch.Delete(op.Kind.Key)
+
+	case OpKindDeleteRange:
+		prefix := r.runPrefix()
+		relStart := strings.TrimPrefix(op.Kind.Start, prefix)
+		relEnd := strings.TrimPrefix(op.Kind.End, prefix)
+		keys, err := r.pebble.RefRangeKeys(prefix, relStart, relEnd)
+		if err == nil {
+			for _, k := range keys {
+				batch.Delete(k)
+			}
+		}
+
+	case OpKindCas:
 		version := r.resolveVersion(op.Kind.Key, adapterVersion)
-		_ = r.pebble.RefPut(op.Kind.Key, &storage.RefEntry{
-			Value: op.Kind.Value, Version: version, Ephemeral: false,
+		batch.Put(op.Kind.Key, &storage.RefEntry{
+			Value: op.Kind.NewValue, Version: version, Ephemeral: false,
 		})
-		// Remove old index entry for this primary key (it may have changed index_key)
-		_ = r.pebble.IdxDeletePrimary(op.Kind.IndexName, op.Kind.Key)
-		_ = r.pebble.IdxPut(op.Kind.IndexName, op.Kind.IndexKey, op.Kind.Key)
-
-	case OpKindSequencePut:
-		// Sequence keys are stored under a different PartitionKey in Oxia,
-		// so they won't appear in regular list/range_scan. Don't store in
-		// the main reference -- verify monotonicity separately.
 	}
 }
 
@@ -121,15 +147,15 @@ func (r *BasicKvReference) verifyRead(
 	case OpKindGet:
 		return r.verifyGet(op, op.Kind.Key, op.Kind.Comparison, result, ignoreVersion)
 	case OpKindList:
+		if op.Kind.IndexName != "" {
+			return r.verifyIndexedList(op, op.Kind.IndexName, op.Kind.Start, op.Kind.End, result)
+		}
 		return r.verifyList(op, op.Kind.Start, op.Kind.End, result)
-	case OpKindRangeScan:
+	case OpKindScan:
+		if op.Kind.IndexName != "" {
+			return r.verifyIndexedRangeScan(op, op.Kind.IndexName, op.Kind.Start, op.Kind.End, result, ignoreVersion)
+		}
 		return r.verifyRangeScan(op, op.Kind.Start, op.Kind.End, result, ignoreVersion)
-	case OpKindIndexedGet:
-		return r.verifyIndexedGet(op, op.Kind.IndexName, op.Kind.IndexKey, result, ignoreVersion)
-	case OpKindIndexedList:
-		return r.verifyIndexedList(op, op.Kind.IndexName, op.Kind.Start, op.Kind.End, result)
-	case OpKindIndexedRangeScan:
-		return r.verifyIndexedRangeScan(op, op.Kind.IndexName, op.Kind.Start, op.Kind.End, result, ignoreVersion)
 	default:
 		return nil
 	}
@@ -272,11 +298,13 @@ func (r *BasicKvReference) verifyList(
 	}
 	actualKeys := result.Keys
 
+	rangeInfo := fmt.Sprintf(" [start=%s, end=%s]", start, end)
+
 	if len(expectedKeys) != len(actualKeys) {
 		return &SafetyViolation{
 			OpID:     op.ID,
 			Op:       "list",
-			Expected: fmt.Sprintf("%d keys", len(expectedKeys)),
+			Expected: fmt.Sprintf("%d keys%s", len(expectedKeys), rangeInfo),
 			Actual:   fmt.Sprintf("%d keys", len(actualKeys)),
 		}
 	}
@@ -287,7 +315,7 @@ func (r *BasicKvReference) verifyList(
 			return &SafetyViolation{
 				OpID:     op.ID,
 				Op:       "list",
-				Expected: fmt.Sprintf("key[%d]=%s", i, expectedKeys[i]),
+				Expected: fmt.Sprintf("key[%d]=%s%s", i, expectedKeys[i], rangeInfo),
 				Actual:   fmt.Sprintf("key[%d]=%s", i, actualKeys[i]),
 			}
 		}
@@ -310,11 +338,13 @@ func (r *BasicKvReference) verifyRangeScan(
 	}
 	actualRecords := result.Records
 
+	rangeInfo := fmt.Sprintf(" [start=%s, end=%s]", start, end)
+
 	if len(expectedEntries) != len(actualRecords) {
 		return &SafetyViolation{
 			OpID:     op.ID,
 			Op:       "range_scan",
-			Expected: fmt.Sprintf("%d records", len(expectedEntries)),
+			Expected: fmt.Sprintf("%d records%s", len(expectedEntries), rangeInfo),
 			Actual:   fmt.Sprintf("%d records", len(actualRecords)),
 		}
 	}
@@ -327,7 +357,7 @@ func (r *BasicKvReference) verifyRangeScan(
 			return &SafetyViolation{
 				OpID:     op.ID,
 				Op:       "range_scan",
-				Expected: fmt.Sprintf("record[%d].key=%s", i, exp.Key),
+				Expected: fmt.Sprintf("record[%d].key=%s%s", i, exp.Key, rangeInfo),
 				Actual:   fmt.Sprintf("record[%d].key=%s", i, act.Key),
 			}
 		}
@@ -335,7 +365,7 @@ func (r *BasicKvReference) verifyRangeScan(
 			return &SafetyViolation{
 				OpID:     op.ID,
 				Op:       "range_scan",
-				Expected: fmt.Sprintf("record[%d].value=%s", i, exp.Entry.Value),
+				Expected: fmt.Sprintf("record[%d].value=%s%s", i, exp.Entry.Value, rangeInfo),
 				Actual:   fmt.Sprintf("record[%d].value=%s", i, act.Value),
 			}
 		}
@@ -581,8 +611,7 @@ func (r *BasicKvReference) verifyCasBatch(
 // isWriteOp returns true if the operation kind is a write.
 func isWriteOp(kind OpKindType) bool {
 	switch kind {
-	case OpKindPut, OpKindDelete, OpKindDeleteRange,
-		OpKindCas, OpKindEphemeralPut, OpKindIndexedPut, OpKindSequencePut:
+	case OpKindPut, OpKindDelete, OpKindDeleteRange, OpKindCas:
 		return true
 	default:
 		return false
@@ -592,8 +621,7 @@ func isWriteOp(kind OpKindType) bool {
 // isReadOp returns true if the operation kind is a read.
 func isReadOp(kind OpKindType) bool {
 	switch kind {
-	case OpKindGet, OpKindList, OpKindRangeScan,
-		OpKindIndexedGet, OpKindIndexedList, OpKindIndexedRangeScan:
+	case OpKindGet, OpKindList, OpKindScan:
 		return true
 	default:
 		return false
@@ -690,7 +718,8 @@ func (r *BasicKvReference) ProcessResponse(
 		}
 	}
 
-	// Phase 2: Verify and apply writes
+	// Phase 2: Verify and apply writes (using atomic batch)
+	batch := r.pebble.RefBatch()
 	for i := range ops {
 		if i >= len(response.Results) {
 			break
@@ -728,11 +757,11 @@ func (r *BasicKvReference) ProcessResponse(
 		}
 
 		if isWriteOp(op.Kind.Type) && result.Status == OpStatusOk {
-			r.applyWrite(op, result.VersionID, result.Key)
+			r.applyWriteBatch(batch, op, result.VersionID, result.Key)
 		}
 
 		// Sequence put monotonicity verification
-		if op.Kind.Type == OpKindSequencePut && result.Status == OpStatusOk {
+		if op.Kind.Type == OpKindPut && op.Kind.Sequence && result.Status == OpStatusOk {
 			if result.Key != nil {
 				assignedKey := *result.Key
 				if lastKey, ok := r.lastSequenceKeys[op.Kind.Prefix]; ok {
@@ -751,6 +780,11 @@ func (r *BasicKvReference) ProcessResponse(
 					slog.String("op_id", op.ID))
 			}
 		}
+	}
+
+	// Commit all Phase 2 writes atomically
+	if err := batch.Commit(); err != nil {
+		slog.Warn("failed to commit write batch", slog.Any("error", err))
 	}
 
 	return failures

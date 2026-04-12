@@ -392,6 +392,34 @@ func (p *pebbleDB) IdxList(indexName, start, end string) ([]string, error) {
 	return out, iter.Error()
 }
 
+// ---------------------------------------------------------------------------
+// WriteBatch implementation
+// ---------------------------------------------------------------------------
+
+type pebbleBatch struct {
+	batch *pebble.Batch
+}
+
+func (p *pebbleDB) RefBatch() WriteBatch {
+	return &pebbleBatch{batch: p.db.NewBatch()}
+}
+
+func (b *pebbleBatch) Put(key string, entry *RefEntry) {
+	data, err := marshalRef(entry)
+	if err != nil {
+		return
+	}
+	b.batch.Set(refKey(key), data, nil)
+}
+
+func (b *pebbleBatch) Delete(key string) {
+	b.batch.Delete(refKey(key), nil)
+}
+
+func (b *pebbleBatch) Commit() error {
+	return b.batch.Commit(pebble.Sync)
+}
+
 func (p *pebbleDB) IdxClear(indexName string) error {
 	prefix := []byte(idxPrefix + indexName + "\x00")
 	upper := appendByte(prefix, 0xff)

@@ -173,8 +173,8 @@ func (e *Executor) runInner() StopReason {
 		watchOp := reference.Operation{
 			ID: "precondition-watch",
 			Kind: reference.OpKind{
-				Type: reference.OpKindWatchStart,
-				Key:  prefix,
+				Type:   reference.OpKindWatchStart,
+				Prefix: prefix,
 			},
 		}
 		results, err := e.AdapterClient.ExecuteBatch(e.Ctx, "precondition", []reference.Operation{watchOp})
@@ -407,10 +407,7 @@ func (e *Executor) splitIntoBatches(ops []reference.Operation) [][]reference.Ope
 	for _, op := range ops {
 		isRead := op.Kind.Type == reference.OpKindGet ||
 			op.Kind.Type == reference.OpKindList ||
-			op.Kind.Type == reference.OpKindRangeScan ||
-			op.Kind.Type == reference.OpKindIndexedGet ||
-			op.Kind.Type == reference.OpKindIndexedList ||
-			op.Kind.Type == reference.OpKindIndexedRangeScan
+			op.Kind.Type == reference.OpKindScan
 
 		isSolo := op.Kind.Type == reference.OpKindDeleteRange ||
 			op.Kind.Type == reference.OpKindSessionRestart ||
@@ -555,7 +552,7 @@ func (e *Executor) buildMockResults(ops []reference.Operation) []reference.Adapt
 		}
 		status := reference.OpStatusOk
 		switch op.Kind.Type {
-		case reference.OpKindGet, reference.OpKindIndexedGet:
+		case reference.OpKindGet:
 			status = reference.OpStatusNotFound
 		case reference.OpKindFence:
 			continue
@@ -565,10 +562,10 @@ func (e *Executor) buildMockResults(ops []reference.Operation) []reference.Adapt
 			OpID:   op.ID,
 			Status: status,
 		}
-		if op.Kind.Type == reference.OpKindRangeScan || op.Kind.Type == reference.OpKindIndexedRangeScan {
+		if op.Kind.Type == reference.OpKindScan {
 			r.Records = []reference.RangeRecord{}
 		}
-		if op.Kind.Type == reference.OpKindList || op.Kind.Type == reference.OpKindIndexedList {
+		if op.Kind.Type == reference.OpKindList {
 			r.Keys = []string{}
 		}
 		results = append(results, r)
@@ -589,6 +586,15 @@ func (e *Executor) emitEvent(event Event) {
 func opTypeStr(op reference.Operation) string {
 	switch op.Kind.Type {
 	case reference.OpKindPut:
+		if op.Kind.Sequence {
+			return "sequence_put"
+		}
+		if op.Kind.Ephemeral {
+			return "ephemeral_put"
+		}
+		if op.Kind.IndexName != "" {
+			return "indexed_put"
+		}
 		return "put"
 	case reference.OpKindGet:
 		switch op.Kind.Comparison {
@@ -608,23 +614,17 @@ func opTypeStr(op reference.Operation) string {
 	case reference.OpKindDeleteRange:
 		return "delete_range"
 	case reference.OpKindList:
+		if op.Kind.IndexName != "" {
+			return "indexed_list"
+		}
 		return "list"
-	case reference.OpKindRangeScan:
+	case reference.OpKindScan:
+		if op.Kind.IndexName != "" {
+			return "indexed_range_scan"
+		}
 		return "range_scan"
 	case reference.OpKindCas:
 		return "cas"
-	case reference.OpKindEphemeralPut:
-		return "ephemeral_put"
-	case reference.OpKindIndexedPut:
-		return "indexed_put"
-	case reference.OpKindIndexedGet:
-		return "indexed_get"
-	case reference.OpKindIndexedList:
-		return "indexed_list"
-	case reference.OpKindIndexedRangeScan:
-		return "indexed_range_scan"
-	case reference.OpKindSequencePut:
-		return "sequence_put"
 	case reference.OpKindWatchStart:
 		return "watch_start"
 	case reference.OpKindSessionRestart:
@@ -641,8 +641,19 @@ func opTypeStr(op reference.Operation) string {
 func opPayload(op reference.Operation) interface{} {
 	k := op.Kind
 	switch k.Type {
-	case reference.OpKindPut, reference.OpKindEphemeralPut:
-		return map[string]interface{}{"key": k.Key, "value": k.Value}
+	case reference.OpKindPut:
+		if k.Sequence {
+			return map[string]interface{}{"prefix": k.Prefix, "value": k.Value, "delta": k.Delta, "sequence": true}
+		}
+		m := map[string]interface{}{"key": k.Key, "value": k.Value}
+		if k.Ephemeral {
+			m["ephemeral"] = true
+		}
+		if k.IndexName != "" {
+			m["index_name"] = k.IndexName
+			m["index_key"] = k.IndexKey
+		}
+		return m
 	case reference.OpKindGet:
 		return map[string]interface{}{"key": k.Key}
 	case reference.OpKindDelete:
@@ -650,23 +661,21 @@ func opPayload(op reference.Operation) interface{} {
 	case reference.OpKindDeleteRange:
 		return map[string]interface{}{"start": k.Start, "end": k.End}
 	case reference.OpKindList:
-		return map[string]interface{}{"start": k.Start, "end": k.End}
-	case reference.OpKindRangeScan:
-		return map[string]interface{}{"start": k.Start, "end": k.End}
+		m := map[string]interface{}{"start": k.Start, "end": k.End}
+		if k.IndexName != "" {
+			m["index_name"] = k.IndexName
+		}
+		return m
+	case reference.OpKindScan:
+		m := map[string]interface{}{"start": k.Start, "end": k.End}
+		if k.IndexName != "" {
+			m["index_name"] = k.IndexName
+		}
+		return m
 	case reference.OpKindCas:
 		return map[string]interface{}{"key": k.Key, "expected_version_id": k.ExpectedVersionID, "new_value": k.NewValue}
-	case reference.OpKindIndexedPut:
-		return map[string]interface{}{"key": k.Key, "value": k.Value, "index_name": k.IndexName, "index_key": k.IndexKey}
-	case reference.OpKindIndexedGet:
-		return map[string]interface{}{"index_name": k.IndexName, "index_key": k.IndexKey}
-	case reference.OpKindIndexedList:
-		return map[string]interface{}{"index_name": k.IndexName, "start": k.Start, "end": k.End}
-	case reference.OpKindIndexedRangeScan:
-		return map[string]interface{}{"index_name": k.IndexName, "start": k.Start, "end": k.End}
-	case reference.OpKindSequencePut:
-		return map[string]interface{}{"prefix": k.Prefix, "value": k.Value, "delta": k.Delta}
 	case reference.OpKindWatchStart:
-		return map[string]interface{}{"prefix": k.Key}
+		return map[string]interface{}{"prefix": k.Prefix}
 	default:
 		return map[string]interface{}{}
 	}
@@ -674,11 +683,13 @@ func opPayload(op reference.Operation) interface{} {
 
 func opKey(op reference.Operation) string {
 	switch op.Kind.Type {
-	case reference.OpKindPut, reference.OpKindGet, reference.OpKindDelete,
-		reference.OpKindCas, reference.OpKindEphemeralPut, reference.OpKindIndexedPut:
+	case reference.OpKindPut:
+		if op.Kind.Sequence {
+			return op.Kind.Prefix
+		}
 		return op.Kind.Key
-	case reference.OpKindSequencePut:
-		return op.Kind.Prefix
+	case reference.OpKindGet, reference.OpKindDelete, reference.OpKindCas:
+		return op.Kind.Key
 	default:
 		return ""
 	}
@@ -773,12 +784,55 @@ func parseOriginOpFromJSON(m map[string]interface{}) *reference.Operation {
 		return 0
 	}
 
+	getBool := func(key string) bool {
+		b, _ := m[key].(bool)
+		return b
+	}
+	getInt64 := func(key string) int64 {
+		if f, ok := m[key].(float64); ok {
+			return int64(f)
+		}
+		return 0
+	}
+
+	parseComparison := func(s string) reference.GetComparison {
+		switch s {
+		case "floor":
+			return reference.ComparisonFloor
+		case "ceiling":
+			return reference.ComparisonCeiling
+		case "lower":
+			return reference.ComparisonLower
+		case "higher":
+			return reference.ComparisonHigher
+		default:
+			return reference.ComparisonEqual
+		}
+	}
+
 	op := &reference.Operation{ID: id}
 	switch opType {
 	case "put":
-		op.Kind = reference.OpKind{Type: reference.OpKindPut, Key: getString("key"), Value: getString("value")}
+		if getBool("sequence") {
+			delta := getInt64("delta")
+			if delta == 0 {
+				delta = 1
+			}
+			op.Kind = reference.OpKind{Type: reference.OpKindPut, Value: getString("value"), Sequence: true, Prefix: getString("prefix"), Delta: delta}
+		} else {
+			op.Kind = reference.OpKind{
+				Type:      reference.OpKindPut,
+				Key:       getString("key"),
+				Value:     getString("value"),
+				Ephemeral: getBool("ephemeral"),
+				IndexName: getString("index_name"),
+				IndexKey:  getString("index_key"),
+			}
+		}
 	case "get":
-		op.Kind = reference.OpKind{Type: reference.OpKindGet, Key: getString("key"), Comparison: reference.ComparisonEqual}
+		comp := parseComparison(getString("comparison"))
+		op.Kind = reference.OpKind{Type: reference.OpKindGet, Key: getString("key"), Comparison: comp}
+	// Support legacy op names for backwards compatibility with existing JSONL files
 	case "get_floor":
 		op.Kind = reference.OpKind{Type: reference.OpKindGet, Key: getString("key"), Comparison: reference.ComparisonFloor}
 	case "get_ceiling":
@@ -792,29 +846,36 @@ func parseOriginOpFromJSON(m map[string]interface{}) *reference.Operation {
 	case "delete_range":
 		op.Kind = reference.OpKind{Type: reference.OpKindDeleteRange, Start: getString("start"), End: getString("end")}
 	case "list":
-		op.Kind = reference.OpKind{Type: reference.OpKindList, Start: getString("start"), End: getString("end")}
-	case "range_scan":
-		op.Kind = reference.OpKind{Type: reference.OpKindRangeScan, Start: getString("start"), End: getString("end")}
+		op.Kind = reference.OpKind{Type: reference.OpKindList, Start: getString("start"), End: getString("end"), IndexName: getString("index_name")}
+	case "scan", "range_scan":
+		op.Kind = reference.OpKind{Type: reference.OpKindScan, Start: getString("start"), End: getString("end"), IndexName: getString("index_name")}
 	case "cas":
 		op.Kind = reference.OpKind{Type: reference.OpKindCas, Key: getString("key"), ExpectedVersionID: getUint64("expected_version_id"), NewValue: getString("new_value")}
+	// Legacy op names
 	case "ephemeral_put":
-		op.Kind = reference.OpKind{Type: reference.OpKindEphemeralPut, Key: getString("key"), Value: getString("value")}
+		op.Kind = reference.OpKind{Type: reference.OpKindPut, Key: getString("key"), Value: getString("value"), Ephemeral: true}
 	case "indexed_put":
-		op.Kind = reference.OpKind{Type: reference.OpKindIndexedPut, Key: getString("key"), Value: getString("value"), IndexName: getString("index_name"), IndexKey: getString("index_key")}
+		op.Kind = reference.OpKind{Type: reference.OpKindPut, Key: getString("key"), Value: getString("value"), IndexName: getString("index_name"), IndexKey: getString("index_key")}
 	case "indexed_get":
-		op.Kind = reference.OpKind{Type: reference.OpKindIndexedGet, IndexName: getString("index_name"), IndexKey: getString("index_key")}
+		indexKey := getString("index_key")
+		endKey := indexKey + "\x00"
+		op.Kind = reference.OpKind{Type: reference.OpKindList, IndexName: getString("index_name"), Start: indexKey, End: endKey}
 	case "indexed_list":
-		op.Kind = reference.OpKind{Type: reference.OpKindIndexedList, IndexName: getString("index_name"), Start: getString("start"), End: getString("end")}
+		op.Kind = reference.OpKind{Type: reference.OpKindList, IndexName: getString("index_name"), Start: getString("start"), End: getString("end")}
 	case "indexed_range_scan":
-		op.Kind = reference.OpKind{Type: reference.OpKindIndexedRangeScan, IndexName: getString("index_name"), Start: getString("start"), End: getString("end")}
+		op.Kind = reference.OpKind{Type: reference.OpKindScan, IndexName: getString("index_name"), Start: getString("start"), End: getString("end")}
 	case "sequence_put":
-		delta := getUint64("delta")
+		delta := getInt64("delta")
 		if delta == 0 {
 			delta = 1
 		}
-		op.Kind = reference.OpKind{Type: reference.OpKindSequencePut, Prefix: getString("prefix"), Value: getString("value"), Delta: delta}
+		op.Kind = reference.OpKind{Type: reference.OpKindPut, Value: getString("value"), Sequence: true, Prefix: getString("prefix"), Delta: delta}
 	case "watch_start":
-		op.Kind = reference.OpKind{Type: reference.OpKindWatchStart, Key: getString("key")}
+		op.Kind = reference.OpKind{Type: reference.OpKindWatchStart, Prefix: getString("prefix")}
+		// Also check legacy "key" field
+		if op.Kind.Prefix == "" {
+			op.Kind.Prefix = getString("key")
+		}
 	case "session_restart":
 		op.Kind = reference.OpKind{Type: reference.OpKindSessionRestart}
 	case "get_notifications":

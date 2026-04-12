@@ -102,13 +102,13 @@ func (g *BasicKvGenerator) dispatchOp(opType, id string) OriginOp {
 	case "get":
 		return g.genGet(id)
 	case "get_floor":
-		return g.genGetFloor(id)
+		return g.genGetWithComparison(id, "floor")
 	case "get_ceiling":
-		return g.genGetCeiling(id)
+		return g.genGetWithComparison(id, "ceiling")
 	case "get_lower":
-		return g.genGetLower(id)
+		return g.genGetWithComparison(id, "lower")
 	case "get_higher":
-		return g.genGetHigher(id)
+		return g.genGetWithComparison(id, "higher")
 	case "delete":
 		return g.genDelete(id)
 	case "delete_range":
@@ -205,7 +205,7 @@ func (g *BasicKvGenerator) genSequencePut(id string) OriginOp {
 		g.sequencePrefixes = append(g.sequencePrefixes, prefix)
 	}
 
-	return SequencePut(id, prefix, value, 1)
+	return SequencePut(id, prefix, value, int64(1))
 }
 
 // -- Read operations --
@@ -214,20 +214,8 @@ func (g *BasicKvGenerator) genGet(id string) OriginOp {
 	return Get(id, g.randomKey())
 }
 
-func (g *BasicKvGenerator) genGetFloor(id string) OriginOp {
-	return GetFloor(id, g.randomKey())
-}
-
-func (g *BasicKvGenerator) genGetCeiling(id string) OriginOp {
-	return GetCeiling(id, g.randomKey())
-}
-
-func (g *BasicKvGenerator) genGetLower(id string) OriginOp {
-	return GetLower(id, g.randomKey())
-}
-
-func (g *BasicKvGenerator) genGetHigher(id string) OriginOp {
-	return GetHigher(id, g.randomKey())
+func (g *BasicKvGenerator) genGetWithComparison(id, comparison string) OriginOp {
+	return GetWithComparison(id, g.randomKey(), comparison)
 }
 
 func (g *BasicKvGenerator) genRangeScan(id string) OriginOp {
@@ -241,7 +229,7 @@ func (g *BasicKvGenerator) genRangeScan(id string) OriginOp {
 		hi = a
 	}
 	hi++ // exclusive end
-	return RangeScan(id, g.formatKey(lo), g.formatKey(hi))
+	return Scan(id, g.formatKey(lo), g.formatKey(hi))
 }
 
 func (g *BasicKvGenerator) genList(id string) OriginOp {

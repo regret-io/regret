@@ -132,19 +132,13 @@ const (
 	OpKindGet
 	OpKindDelete
 	OpKindDeleteRange
+	OpKindScan
 	OpKindList
-	OpKindRangeScan
 	OpKindCas
-	OpKindEphemeralPut
-	OpKindIndexedPut
-	OpKindIndexedGet
-	OpKindIndexedList
-	OpKindIndexedRangeScan
-	OpKindSequencePut
+	OpKindFence
 	OpKindWatchStart
 	OpKindSessionRestart
 	OpKindGetNotifications
-	OpKindFence
 )
 
 // OpKind represents the data associated with an operation kind.
@@ -155,24 +149,26 @@ type OpKind struct {
 	Key   string
 	Value string
 
-	// Get comparison type
+	// Get comparison type: "equal" (default), "floor", "ceiling", "lower", "higher"
 	Comparison GetComparison
 
-	// Range ops
+	// Range ops (scan/list/delete_range)
 	Start string
 	End   string
+
+	// Put modifiers
+	Ephemeral bool   // replaces OpKindEphemeralPut
+	Sequence  bool   // replaces OpKindSequencePut
+	Prefix    string // for sequence put and watch_start
+	Delta     int64  // for sequence put
+
+	// Secondary index
+	IndexName string // for put (indexed), scan, list
+	IndexKey  string // for put (indexed)
 
 	// CAS
 	ExpectedVersionID uint64
 	NewValue          string
-
-	// Secondary index
-	IndexName string
-	IndexKey  string
-
-	// Sequence
-	Prefix string
-	Delta  uint64
 }
 
 // ReferenceModel is the core reference model interface.

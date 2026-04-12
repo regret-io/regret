@@ -31,15 +31,13 @@ const (
 	OpFieldsGet
 	OpFieldsDelete
 	OpFieldsDeleteRange
+	OpFieldsScan
 	OpFieldsList
-	OpFieldsRangeScan
 	OpFieldsCas
-	OpFieldsEphemeralPut
-	OpFieldsIndexedPut
-	OpFieldsIndexedGet
-	OpFieldsIndexedList
-	OpFieldsIndexedRangeScan
-	OpFieldsSequencePut
+	OpFieldsFence
+	OpFieldsWatchStart
+	OpFieldsSessionRestart
+	OpFieldsGetNotifications
 )
 
 // OpFields holds the variant data for an operation.
@@ -50,21 +48,26 @@ type OpFields struct {
 	Key   string
 	Value string
 
-	// Range ops
+	// Get comparison type
+	Comparison string
+
+	// Range ops (scan/list/delete_range)
 	Start string
 	End   string
+
+	// Put modifiers
+	Ephemeral bool   // ephemeral put
+	Sequence  bool   // sequence put
+	Prefix    string // for sequence put, watch_start
+	Delta     int64  // for sequence put
+
+	// Secondary index
+	IndexName string // for put (indexed), scan, list
+	IndexKey  string // for put (indexed)
 
 	// CAS
 	ExpectedVersionID uint64
 	NewValue          string
-
-	// Secondary index
-	IndexName string
-	IndexKey  string
-
-	// Sequence
-	Prefix string
-	Delta  uint64
 }
 
 // MarshalJSON implements custom JSON serialization for OriginOp.
@@ -87,48 +90,54 @@ func (op OperationOp) MarshalJSON() ([]byte, error) {
 	f := op.Fields
 	switch f.Type {
 	case OpFieldsPut:
-		m["key"] = f.Key
-		m["value"] = f.Value
+		if f.Sequence {
+			m["prefix"] = f.Prefix
+			m["value"] = f.Value
+			m["delta"] = f.Delta
+			m["sequence"] = true
+		} else {
+			m["key"] = f.Key
+			m["value"] = f.Value
+			if f.Ephemeral {
+				m["ephemeral"] = true
+			}
+			if f.IndexName != "" {
+				m["index_name"] = f.IndexName
+				m["index_key"] = f.IndexKey
+			}
+		}
 	case OpFieldsGet:
 		m["key"] = f.Key
+		if f.Comparison != "" && f.Comparison != "equal" {
+			m["comparison"] = f.Comparison
+		}
 	case OpFieldsDelete:
 		m["key"] = f.Key
 	case OpFieldsDeleteRange:
 		m["start"] = f.Start
 		m["end"] = f.End
+	case OpFieldsScan:
+		m["start"] = f.Start
+		m["end"] = f.End
+		if f.IndexName != "" {
+			m["index_name"] = f.IndexName
+		}
 	case OpFieldsList:
 		m["start"] = f.Start
 		m["end"] = f.End
-	case OpFieldsRangeScan:
-		m["start"] = f.Start
-		m["end"] = f.End
+		if f.IndexName != "" {
+			m["index_name"] = f.IndexName
+		}
 	case OpFieldsCas:
 		m["key"] = f.Key
 		m["expected_version_id"] = f.ExpectedVersionID
 		m["new_value"] = f.NewValue
-	case OpFieldsEphemeralPut:
-		m["key"] = f.Key
-		m["value"] = f.Value
-	case OpFieldsIndexedPut:
-		m["key"] = f.Key
-		m["value"] = f.Value
-		m["index_name"] = f.IndexName
-		m["index_key"] = f.IndexKey
-	case OpFieldsIndexedGet:
-		m["index_name"] = f.IndexName
-		m["index_key"] = f.IndexKey
-	case OpFieldsIndexedList:
-		m["index_name"] = f.IndexName
-		m["start"] = f.Start
-		m["end"] = f.End
-	case OpFieldsIndexedRangeScan:
-		m["index_name"] = f.IndexName
-		m["start"] = f.Start
-		m["end"] = f.End
-	case OpFieldsSequencePut:
+	case OpFieldsWatchStart:
 		m["prefix"] = f.Prefix
-		m["value"] = f.Value
-		m["delta"] = f.Delta
+	case OpFieldsSessionRestart:
+		// no additional fields
+	case OpFieldsGetNotifications:
+		// no additional fields
 	}
 	return json.Marshal(m)
 }
@@ -148,7 +157,7 @@ func Put(id, key, value string) OriginOp {
 	}}
 }
 
-// Get creates a get OriginOp.
+// Get creates a get OriginOp with equal comparison (default).
 func Get(id, key string) OriginOp {
 	return OriginOp{Operation: &OperationOp{
 		ID: id, Op: "get",
@@ -156,35 +165,11 @@ func Get(id, key string) OriginOp {
 	}}
 }
 
-// GetFloor creates a get_floor OriginOp.
-func GetFloor(id, key string) OriginOp {
+// GetWithComparison creates a get OriginOp with the specified comparison type.
+func GetWithComparison(id, key, comparison string) OriginOp {
 	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "get_floor",
-		Fields: OpFields{Type: OpFieldsGet, Key: key},
-	}}
-}
-
-// GetCeiling creates a get_ceiling OriginOp.
-func GetCeiling(id, key string) OriginOp {
-	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "get_ceiling",
-		Fields: OpFields{Type: OpFieldsGet, Key: key},
-	}}
-}
-
-// GetLower creates a get_lower OriginOp.
-func GetLower(id, key string) OriginOp {
-	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "get_lower",
-		Fields: OpFields{Type: OpFieldsGet, Key: key},
-	}}
-}
-
-// GetHigher creates a get_higher OriginOp.
-func GetHigher(id, key string) OriginOp {
-	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "get_higher",
-		Fields: OpFields{Type: OpFieldsGet, Key: key},
+		ID: id, Op: "get",
+		Fields: OpFields{Type: OpFieldsGet, Key: key, Comparison: comparison},
 	}}
 }
 
@@ -212,11 +197,27 @@ func List(id, start, end string) OriginOp {
 	}}
 }
 
-// RangeScan creates a range_scan OriginOp.
-func RangeScan(id, start, end string) OriginOp {
+// ListWithIndex creates a list OriginOp with a secondary index.
+func ListWithIndex(id, indexName, start, end string) OriginOp {
 	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "range_scan",
-		Fields: OpFields{Type: OpFieldsRangeScan, Start: start, End: end},
+		ID: id, Op: "list",
+		Fields: OpFields{Type: OpFieldsList, IndexName: indexName, Start: start, End: end},
+	}}
+}
+
+// Scan creates a scan OriginOp (replaces range_scan).
+func Scan(id, start, end string) OriginOp {
+	return OriginOp{Operation: &OperationOp{
+		ID: id, Op: "scan",
+		Fields: OpFields{Type: OpFieldsScan, Start: start, End: end},
+	}}
+}
+
+// ScanWithIndex creates a scan OriginOp with a secondary index.
+func ScanWithIndex(id, indexName, start, end string) OriginOp {
+	return OriginOp{Operation: &OperationOp{
+		ID: id, Op: "scan",
+		Fields: OpFields{Type: OpFieldsScan, IndexName: indexName, Start: start, End: end},
 	}}
 }
 
@@ -228,51 +229,46 @@ func Cas(id, key string, expectedVersionID uint64, newValue string) OriginOp {
 	}}
 }
 
-// EphemeralPut creates an ephemeral_put OriginOp.
+// EphemeralPut creates an ephemeral put OriginOp.
 func EphemeralPut(id, key, value string) OriginOp {
 	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "ephemeral_put",
-		Fields: OpFields{Type: OpFieldsEphemeralPut, Key: key, Value: value},
+		ID: id, Op: "put",
+		Fields: OpFields{Type: OpFieldsPut, Key: key, Value: value, Ephemeral: true},
 	}}
 }
 
-// IndexedPut creates an indexed_put OriginOp.
+// IndexedPut creates an indexed put OriginOp.
 func IndexedPut(id, key, value, indexName, indexKey string) OriginOp {
 	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "indexed_put",
-		Fields: OpFields{Type: OpFieldsIndexedPut, Key: key, Value: value, IndexName: indexName, IndexKey: indexKey},
+		ID: id, Op: "put",
+		Fields: OpFields{Type: OpFieldsPut, Key: key, Value: value, IndexName: indexName, IndexKey: indexKey},
 	}}
 }
 
-// IndexedGet creates an indexed_get OriginOp.
+// IndexedGet creates an indexed get OriginOp (list with index_key as both start and end).
 func IndexedGet(id, indexName, indexKey string) OriginOp {
+	endKey := indexKey + "\x00"
 	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "indexed_get",
-		Fields: OpFields{Type: OpFieldsIndexedGet, IndexName: indexName, IndexKey: indexKey},
+		ID: id, Op: "list",
+		Fields: OpFields{Type: OpFieldsList, IndexName: indexName, Start: indexKey, End: endKey},
 	}}
 }
 
-// IndexedList creates an indexed_list OriginOp.
+// IndexedList creates an indexed list OriginOp.
 func IndexedList(id, indexName, start, end string) OriginOp {
-	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "indexed_list",
-		Fields: OpFields{Type: OpFieldsIndexedList, IndexName: indexName, Start: start, End: end},
-	}}
+	return ListWithIndex(id, indexName, start, end)
 }
 
-// IndexedRangeScan creates an indexed_range_scan OriginOp.
+// IndexedRangeScan creates an indexed scan OriginOp.
 func IndexedRangeScan(id, indexName, start, end string) OriginOp {
-	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "indexed_range_scan",
-		Fields: OpFields{Type: OpFieldsIndexedRangeScan, IndexName: indexName, Start: start, End: end},
-	}}
+	return ScanWithIndex(id, indexName, start, end)
 }
 
-// SequencePut creates a sequence_put OriginOp.
-func SequencePut(id, prefix, value string, delta uint64) OriginOp {
+// SequencePut creates a sequence put OriginOp.
+func SequencePut(id, prefix, value string, delta int64) OriginOp {
 	return OriginOp{Operation: &OperationOp{
-		ID: id, Op: "sequence_put",
-		Fields: OpFields{Type: OpFieldsSequencePut, Prefix: prefix, Value: value, Delta: delta},
+		ID: id, Op: "put",
+		Fields: OpFields{Type: OpFieldsPut, Value: value, Sequence: true, Prefix: prefix, Delta: delta},
 	}}
 }
 
@@ -280,7 +276,7 @@ func SequencePut(id, prefix, value string, delta uint64) OriginOp {
 func WatchStart(id, prefix string) OriginOp {
 	return OriginOp{Operation: &OperationOp{
 		ID: id, Op: "watch_start",
-		Fields: OpFields{Type: OpFieldsGet, Key: prefix},
+		Fields: OpFields{Type: OpFieldsWatchStart, Prefix: prefix},
 	}}
 }
 
@@ -288,7 +284,7 @@ func WatchStart(id, prefix string) OriginOp {
 func SessionRestart(id string) OriginOp {
 	return OriginOp{Operation: &OperationOp{
 		ID: id, Op: "session_restart",
-		Fields: OpFields{Type: OpFieldsGet, Key: ""},
+		Fields: OpFields{Type: OpFieldsSessionRestart},
 	}}
 }
 
@@ -296,6 +292,6 @@ func SessionRestart(id string) OriginOp {
 func GetNotifications(id string) OriginOp {
 	return OriginOp{Operation: &OperationOp{
 		ID: id, Op: "get_notifications",
-		Fields: OpFields{Type: OpFieldsGet, Key: ""},
+		Fields: OpFields{Type: OpFieldsGetNotifications},
 	}}
 }

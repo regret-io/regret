@@ -135,6 +135,15 @@ func CleanupPrefix(addr, keyPrefix string) error {
 func serializeOp(kind reference.OpKind) (string, []byte) {
 	switch kind.Type {
 	case reference.OpKindPut:
+		if kind.Sequence {
+			return "sequence_put", mustJSON(map[string]interface{}{"prefix": kind.Prefix, "value": kind.Value, "delta": kind.Delta})
+		}
+		if kind.Ephemeral {
+			return "ephemeral_put", mustJSON(map[string]interface{}{"key": kind.Key, "value": kind.Value})
+		}
+		if kind.IndexName != "" {
+			return "indexed_put", mustJSON(map[string]interface{}{"key": kind.Key, "value": kind.Value, "index_name": kind.IndexName, "index_key": kind.IndexKey})
+		}
 		return "put", mustJSON(map[string]interface{}{"key": kind.Key, "value": kind.Value})
 	case reference.OpKindGet:
 		opType := "get"
@@ -154,25 +163,19 @@ func serializeOp(kind reference.OpKind) (string, []byte) {
 	case reference.OpKindDeleteRange:
 		return "delete_range", mustJSON(map[string]interface{}{"start": kind.Start, "end": kind.End})
 	case reference.OpKindList:
+		if kind.IndexName != "" {
+			return "indexed_list", mustJSON(map[string]interface{}{"index_name": kind.IndexName, "start": kind.Start, "end": kind.End})
+		}
 		return "list", mustJSON(map[string]interface{}{"start": kind.Start, "end": kind.End})
-	case reference.OpKindRangeScan:
+	case reference.OpKindScan:
+		if kind.IndexName != "" {
+			return "indexed_range_scan", mustJSON(map[string]interface{}{"index_name": kind.IndexName, "start": kind.Start, "end": kind.End})
+		}
 		return "range_scan", mustJSON(map[string]interface{}{"start": kind.Start, "end": kind.End})
 	case reference.OpKindCas:
 		return "cas", mustJSON(map[string]interface{}{"key": kind.Key, "expected_version_id": kind.ExpectedVersionID, "new_value": kind.NewValue})
-	case reference.OpKindEphemeralPut:
-		return "ephemeral_put", mustJSON(map[string]interface{}{"key": kind.Key, "value": kind.Value})
-	case reference.OpKindIndexedPut:
-		return "indexed_put", mustJSON(map[string]interface{}{"key": kind.Key, "value": kind.Value, "index_name": kind.IndexName, "index_key": kind.IndexKey})
-	case reference.OpKindIndexedGet:
-		return "indexed_get", mustJSON(map[string]interface{}{"index_name": kind.IndexName, "index_key": kind.IndexKey})
-	case reference.OpKindIndexedList:
-		return "indexed_list", mustJSON(map[string]interface{}{"index_name": kind.IndexName, "start": kind.Start, "end": kind.End})
-	case reference.OpKindIndexedRangeScan:
-		return "indexed_range_scan", mustJSON(map[string]interface{}{"index_name": kind.IndexName, "start": kind.Start, "end": kind.End})
-	case reference.OpKindSequencePut:
-		return "sequence_put", mustJSON(map[string]interface{}{"prefix": kind.Prefix, "value": kind.Value, "delta": kind.Delta})
 	case reference.OpKindWatchStart:
-		return "watch_start", mustJSON(map[string]interface{}{"key": kind.Key})
+		return "watch_start", mustJSON(map[string]interface{}{"key": kind.Prefix})
 	case reference.OpKindSessionRestart:
 		return "session_restart", nil
 	case reference.OpKindGetNotifications:
