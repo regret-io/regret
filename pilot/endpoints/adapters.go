@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"github.com/regret-io/regret/pilot-go/ext"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -32,7 +33,7 @@ func (a *adapterHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := fmt.Sprintf("adp-%d", timeNow())
+	id := fmt.Sprintf("adp-%d", ext.NowUnixMilli())
 	envJSON, _ := json.Marshal(req.Env)
 
 	// Step 1: Save to DB

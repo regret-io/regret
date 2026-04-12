@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"github.com/regret-io/regret/pilot-go/ext"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -31,7 +32,7 @@ func (c *chaosHandlers) CreateScenario(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := fmt.Sprintf("cs-%d", timeNow())
+	id := fmt.Sprintf("cs-%d", ext.NowUnixMilli())
 	actionsJSON, _ := json.Marshal(req.Actions)
 
 	record, err := c.state.Sqlite.CreateChaosScenario(r.Context(), id, req.Name, req.Namespace, string(actionsJSON))

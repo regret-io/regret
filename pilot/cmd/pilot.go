@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	adapterPkg "github.com/regret-io/regret/pilot-go/adapter"
+	"github.com/regret-io/regret/pilot-go/ext"
 	"github.com/regret-io/regret/pilot-go/chaos"
 	"github.com/regret-io/regret/pilot-go/database"
 	"github.com/regret-io/regret/pilot-go/endpoints"
@@ -43,7 +44,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Flags().String("data-dir", envOr("DATA_DIR", "/data"), "Base data directory (all state is stored under this path)")
+	rootCmd.Flags().String("data-dir", ext.EnvOr("DATA_DIR", "/data"), "Base data directory (all state is stored under this path)")
 }
 
 func Execute() {
@@ -61,9 +62,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Derive all paths from data-dir
 	dbPath := filepath.Join(dataDir, "regret.db")
 	pebblePath := filepath.Join(dataDir, "pebble")
-	httpPort := envUint16("HTTP_PORT", 8080)
-	grpcPort := envUint16("GRPC_PORT", 9090)
-	namespace := envOr("NAMESPACE", "regret")
+	httpPort := ext.EnvUint16("HTTP_PORT", 8080)
+	grpcPort := ext.EnvUint16("GRPC_PORT", 9090)
+	namespace := ext.EnvOr("NAMESPACE", "regret")
 	authPassword := os.Getenv("AUTH_PASSWORD")
 
 	slog.Info("starting regret-pilot",
@@ -167,8 +168,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 func resumeHypothesis(ctx context.Context, h *database.Hypothesis, sqlite *database.SqliteStore, managers *engine.ManagerRegistry) {
 	slog.Info("auto-resuming hypothesis", "id", h.ID, "name", h.Name)
 
-	durationSecs := parseDuration(ptrOr(h.Duration, ""))
-	checkpointSecs := parseDuration(&h.CheckpointEvery)
+	durationSecs := ext.ParseDuration(ext.PtrOr(h.Duration, ""))
+	checkpointSecs := ext.ParseDuration(&h.CheckpointEvery)
 	if checkpointSecs == nil {
 		v := uint64(600)
 		checkpointSecs = &v
@@ -263,44 +264,6 @@ func seedBuiltinChaosScenarios(ctx context.Context, sqlite *database.SqliteStore
 		_, _ = sqlite.CreateChaosScenario(ctx, id, s.Name, s.Namespace, string(actionsJSON))
 	}
 	slog.Info("built-in chaos scenarios seeded")
-}
-
-func parseDuration(s *string) *uint64 {
-	if s == nil || *s == "" {
-		return nil
-	}
-	d, err := time.ParseDuration(strings.TrimSpace(*s))
-	if err == nil {
-		v := uint64(d.Seconds())
-		return &v
-	}
-	var v uint64
-	if _, err := fmt.Sscanf(*s, "%d", &v); err == nil {
-		return &v
-	}
-	return nil
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func envUint16(key string, fallback uint16) uint16 {
-	var n uint16
-	if _, err := fmt.Sscanf(os.Getenv(key), "%d", &n); err == nil {
-		return n
-	}
-	return fallback
-}
-
-func ptrOr(s *string, fallback string) *string {
-	if s != nil {
-		return s
-	}
-	return &fallback
 }
 
 func main() {

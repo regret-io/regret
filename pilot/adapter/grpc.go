@@ -257,6 +257,8 @@ func parseOpResult(r *proto.OpResult) reference.AdapterOpResult {
 	return result
 }
 
+// mustJSON is kept local since ext.MustJSON drops the error silently
+// and this package already imports encoding/json.
 func mustJSON(v interface{}) []byte {
 	data, err := json.Marshal(v)
 	if err != nil {

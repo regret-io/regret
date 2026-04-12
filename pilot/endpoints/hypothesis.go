@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"github.com/regret-io/regret/pilot-go/ext"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -58,7 +59,7 @@ func (h *hypothesisHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	id := fmt.Sprintf("hyp-%d", timeNow())
+	id := fmt.Sprintf("hyp-%d", ext.NowUnixMilli())
 
 	var toleranceJSON string
 	if req.Tolerance != nil {
@@ -242,8 +243,8 @@ func (h *hypothesisHandlers) StartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	durationSecs := parseDurationOpt(hyp.Duration)
-	checkpointIntervalSecs := parseDuration(hyp.CheckpointEvery)
+	durationSecs := ext.ParseDuration(hyp.Duration)
+	checkpointIntervalSecs := ext.ParseDurationSecs(hyp.CheckpointEvery)
 	if checkpointIntervalSecs == 0 {
 		checkpointIntervalSecs = 600
 	}
@@ -510,42 +511,6 @@ func toHypothesisResponse(hyp *database.Hypothesis) HypothesisResponse {
 	return resp
 }
 
-func parseDuration(s string) uint64 {
-	s = strings.TrimSpace(s)
-	if strings.HasSuffix(s, "s") {
-		v, err := strconv.ParseUint(s[:len(s)-1], 10, 64)
-		if err == nil {
-			return v
-		}
-	} else if strings.HasSuffix(s, "m") {
-		v, err := strconv.ParseUint(s[:len(s)-1], 10, 64)
-		if err == nil {
-			return v * 60
-		}
-	} else if strings.HasSuffix(s, "h") {
-		v, err := strconv.ParseUint(s[:len(s)-1], 10, 64)
-		if err == nil {
-			return v * 3600
-		}
-	}
-	v, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return v
-}
-
-func parseDurationOpt(s *string) *uint64 {
-	if s == nil {
-		return nil
-	}
-	v := parseDuration(*s)
-	if v == 0 {
-		return nil
-	}
-	return &v
-}
-
 func queryPtr(q map[string][]string, key string) *string {
 	if vals, ok := q[key]; ok && len(vals) > 0 && vals[0] != "" {
 		return &vals[0]
@@ -563,9 +528,6 @@ func queryIntPtr(q map[string][]string, key string) *int {
 	return nil
 }
 
-func timeNow() int64 {
-	return time.Now().UnixMilli()
-}
 
 // Ensure time import is used.
 var _ = time.Now

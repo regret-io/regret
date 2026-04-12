@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
+
+	"github.com/regret-io/regret/pilot-go/ext"
 
 	"github.com/regret-io/regret/pilot-go/database"
 	"github.com/regret-io/regret/pilot-go/eventlog"
@@ -119,7 +120,7 @@ func (m *HypothesisManager) StartRun(
 		runID = *m.resumeRunID
 		m.resumeRunID = nil
 	} else {
-		runID = fmt.Sprintf("run-%d", timeNowUnixMilli())
+		runID = fmt.Sprintf("run-%d", ext.NowUnixMilli())
 	}
 
 	progress := &ProgressInfo{}
@@ -295,10 +296,3 @@ func (m *HypothesisManager) Progress() *ProgressInfo {
 	return m.activeRun.progress
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-func timeNowUnixMilli() int64 {
-	return time.Now().UnixMilli()
-}
