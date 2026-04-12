@@ -1,5 +1,7 @@
 package storage
 
+import "io"
+
 // RefEntry is a reference entry stored in PebbleDB.
 type RefEntry struct {
 	Value     string `json:"value"`
@@ -9,9 +11,9 @@ type RefEntry struct {
 
 // PebbleStore defines the storage interface for reference state backed by PebbleDB.
 // This is the Go equivalent of the Rust RocksStore.
+// It embeds io.Closer for lifecycle management.
 type PebbleStore interface {
-	// Close closes the underlying database.
-	Close() error
+	io.Closer
 
 	// RefPut stores a reference entry at the given key.
 	RefPut(key string, entry *RefEntry) error

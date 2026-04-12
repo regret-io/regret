@@ -59,7 +59,9 @@ func (r *BasicKvReference) applyWrite(op *Operation, adapterVersion *uint64, ada
 
 	case OpKindDeleteRange:
 		prefix := r.runPrefix()
-		keys, err := r.pebble.RefRangeKeys(prefix, op.Kind.Start, op.Kind.End)
+		relStart := strings.TrimPrefix(op.Kind.Start, prefix)
+		relEnd := strings.TrimPrefix(op.Kind.End, prefix)
+		keys, err := r.pebble.RefRangeKeys(prefix, relStart, relEnd)
 		if err == nil {
 			for _, k := range keys {
 				_ = r.pebble.RefDelete(k)
@@ -142,6 +144,13 @@ func (r *BasicKvReference) verifyGet(
 ) *SafetyViolation {
 	prefix := r.runPrefix()
 
+	// Strip the prefix from the key for navigational lookups,
+	// since RefFloor/Ceiling/Lower/Higher prepend the prefix internally.
+	relKey := key
+	if strings.HasPrefix(key, prefix) {
+		relKey = key[len(prefix):]
+	}
+
 	// Find the expected record based on comparison type
 	var expected *storage.KeyEntry
 	switch comparison {
@@ -151,22 +160,22 @@ func (r *BasicKvReference) verifyGet(
 			expected = &storage.KeyEntry{Key: key, Entry: *entry}
 		}
 	case ComparisonFloor:
-		ke, err := r.pebble.RefFloor(prefix, key)
+		ke, err := r.pebble.RefFloor(prefix, relKey)
 		if err == nil && ke != nil {
 			expected = ke
 		}
 	case ComparisonCeiling:
-		ke, err := r.pebble.RefCeiling(prefix, key)
+		ke, err := r.pebble.RefCeiling(prefix, relKey)
 		if err == nil && ke != nil {
 			expected = ke
 		}
 	case ComparisonLower:
-		ke, err := r.pebble.RefLower(prefix, key)
+		ke, err := r.pebble.RefLower(prefix, relKey)
 		if err == nil && ke != nil {
 			expected = ke
 		}
 	case ComparisonHigher:
-		ke, err := r.pebble.RefHigher(prefix, key)
+		ke, err := r.pebble.RefHigher(prefix, relKey)
 		if err == nil && ke != nil {
 			expected = ke
 		}
@@ -255,7 +264,9 @@ func (r *BasicKvReference) verifyList(
 	result *AdapterOpResult,
 ) *SafetyViolation {
 	prefix := r.runPrefix()
-	expectedKeys, _ := r.pebble.RefRangeKeys(prefix, start, end)
+	relStart := strings.TrimPrefix(start, prefix)
+	relEnd := strings.TrimPrefix(end, prefix)
+	expectedKeys, _ := r.pebble.RefRangeKeys(prefix, relStart, relEnd)
 	if expectedKeys == nil {
 		expectedKeys = []string{}
 	}
@@ -291,7 +302,9 @@ func (r *BasicKvReference) verifyRangeScan(
 	ignoreVersion bool,
 ) *SafetyViolation {
 	prefix := r.runPrefix()
-	expectedEntries, _ := r.pebble.RefRangeScan(prefix, start, end)
+	relStart := strings.TrimPrefix(start, prefix)
+	relEnd := strings.TrimPrefix(end, prefix)
+	expectedEntries, _ := r.pebble.RefRangeScan(prefix, relStart, relEnd)
 	if expectedEntries == nil {
 		expectedEntries = []storage.KeyEntry{}
 	}

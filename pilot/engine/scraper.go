@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,8 @@ type ScraperConfig struct {
 }
 
 // MetricsURLFromAdapterAddr derives a metrics URL from an adapter gRPC address.
+// For in-cluster addresses (port 9090), the metrics port is 9091.
+// For other ports (e.g. local port-forward 19090), metrics port is grpc_port+1.
 // Returns empty string if the address cannot be parsed.
 func MetricsURLFromAdapterAddr(addr string) string {
 	stripped := addr
@@ -49,14 +52,19 @@ func MetricsURLFromAdapterAddr(addr string) string {
 	}
 
 	host := hostPort
+	port := DefaultMetricsPort
 	if idx := strings.IndexByte(hostPort, ':'); idx >= 0 {
 		host = hostPort[:idx]
+		if p, err := strconv.Atoi(hostPort[idx+1:]); err == nil {
+			// Metrics port is gRPC port + 1
+			port = p + 1
+		}
 	}
 
 	if host == "" {
 		return ""
 	}
-	return fmt.Sprintf("http://%s:%d/metrics", host, DefaultMetricsPort)
+	return fmt.Sprintf("http://%s:%d/metrics", host, port)
 }
 
 // RunScraper runs the scraper loop until ctx is cancelled. Errors from
