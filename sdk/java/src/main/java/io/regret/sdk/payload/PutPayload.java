@@ -13,4 +13,12 @@ public record PutPayload(String key, String value) {
             throw new RuntimeException("Failed to deserialize PutPayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize PutPayload", e);
+        }
+    }
 }

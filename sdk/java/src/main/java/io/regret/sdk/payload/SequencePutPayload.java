@@ -13,4 +13,12 @@ public record SequencePutPayload(String prefix, String value, long delta) {
             throw new RuntimeException("Failed to deserialize SequencePutPayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize SequencePutPayload", e);
+        }
+    }
 }

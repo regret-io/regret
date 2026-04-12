@@ -18,4 +18,12 @@ public record CasPayload(
             throw new RuntimeException("Failed to deserialize CasPayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize CasPayload", e);
+        }
+    }
 }

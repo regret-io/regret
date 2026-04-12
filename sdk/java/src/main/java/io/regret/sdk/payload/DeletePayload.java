@@ -13,4 +13,12 @@ public record DeletePayload(String key) {
             throw new RuntimeException("Failed to deserialize DeletePayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize DeletePayload", e);
+        }
+    }
 }

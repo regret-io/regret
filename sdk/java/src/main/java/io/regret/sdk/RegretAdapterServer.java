@@ -52,30 +52,29 @@ public class RegretAdapterServer {
                 long batchStartNanos = System.nanoTime();
                 LOG.info("executeBatch batchId={} ops={}", request.getBatchId(), request.getOpsCount());
 
-                List<CompletableFuture<OpResult>> futures = new ArrayList<>();
+                // Execute ops sequentially to ensure write visibility ordering
+                List<OpResult> results = new ArrayList<>();
                 for (Regret.Operation protoOp : request.getOpsList()) {
                     final Operation op = fromProto(protoOp);
                     final String opTypeStr = op.opType().value();
-                    futures.add(CompletableFuture.supplyAsync(() -> {
-                        long startNanos = System.nanoTime();
-                        String status = "error";
-                        try {
-                            OpResult result = adapter.executeOp(op);
-                            status = result != null && result.status() != null ? result.status() : "unknown";
-                            return result;
-                        } finally {
-                            double elapsed = (System.nanoTime() - startNanos) / 1_000_000_000.0;
-                            if (metrics != null) metrics.recordOp(opTypeStr, status, elapsed);
-                        }
-                    }));
+                    long startNanos = System.nanoTime();
+                    String status = "error";
+                    try {
+                        OpResult result = adapter.executeOp(op);
+                        status = result != null && result.status() != null ? result.status() : "unknown";
+                        results.add(result);
+                    } catch (Exception e) {
+                        results.add(OpResult.error(op.opId(), e.getMessage()));
+                    } finally {
+                        double elapsed = (System.nanoTime() - startNanos) / 1_000_000_000.0;
+                        if (metrics != null) metrics.recordOp(opTypeStr, status, elapsed);
+                    }
                 }
-
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
                 Regret.BatchResponse.Builder rb = Regret.BatchResponse.newBuilder()
                         .setBatchId(request.getBatchId());
-                for (var f : futures) {
-                    rb.addResults(toProto(f.get()));
+                for (var r : results) {
+                    rb.addResults(toProto(r));
                 }
 
                 double batchElapsedSec = (System.nanoTime() - batchStartNanos) / 1_000_000_000.0;

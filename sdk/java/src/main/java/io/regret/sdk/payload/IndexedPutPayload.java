@@ -19,4 +19,12 @@ public record IndexedPutPayload(
             throw new RuntimeException("Failed to deserialize IndexedPutPayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize IndexedPutPayload", e);
+        }
+    }
 }

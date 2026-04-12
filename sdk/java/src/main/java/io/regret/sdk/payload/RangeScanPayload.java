@@ -13,4 +13,12 @@ public record RangeScanPayload(String start, String end) {
             throw new RuntimeException("Failed to deserialize RangeScanPayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize RangeScanPayload", e);
+        }
+    }
 }

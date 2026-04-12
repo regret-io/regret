@@ -13,4 +13,12 @@ public record EphemeralPutPayload(String key, String value) {
             throw new RuntimeException("Failed to deserialize EphemeralPutPayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize EphemeralPutPayload", e);
+        }
+    }
 }

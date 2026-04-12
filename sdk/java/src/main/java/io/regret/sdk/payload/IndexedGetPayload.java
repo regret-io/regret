@@ -17,4 +17,12 @@ public record IndexedGetPayload(
             throw new RuntimeException("Failed to deserialize IndexedGetPayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize IndexedGetPayload", e);
+        }
+    }
 }

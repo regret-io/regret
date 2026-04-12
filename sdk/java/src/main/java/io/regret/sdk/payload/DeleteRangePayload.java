@@ -13,4 +13,12 @@ public record DeleteRangePayload(String start, String end) {
             throw new RuntimeException("Failed to deserialize DeleteRangePayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize DeleteRangePayload", e);
+        }
+    }
 }

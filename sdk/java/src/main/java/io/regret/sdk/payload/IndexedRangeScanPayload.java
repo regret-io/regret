@@ -18,4 +18,12 @@ public record IndexedRangeScanPayload(
             throw new RuntimeException("Failed to deserialize IndexedRangeScanPayload", e);
         }
     }
+
+    public byte[] toBytes() {
+        try {
+            return MAPPER.writeValueAsBytes(this);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize IndexedRangeScanPayload", e);
+        }
+    }
 }
