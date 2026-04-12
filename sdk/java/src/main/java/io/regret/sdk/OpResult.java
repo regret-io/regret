@@ -1,98 +1,57 @@
 package io.regret.sdk;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import java.util.List;
 
-public record OpResult(String opId, String opType, String status, byte[] payload, String message) {
+public record OpResult(String opId, String status, String message, OpResultData data) {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    public sealed interface OpResultData {}
+    public record PutData(String key, long versionId) implements OpResultData {}
+    public record GetData(String key, String value, long versionId) implements OpResultData {}
+    public record DeleteData() implements OpResultData {}
+    public record DeleteRangeData() implements OpResultData {}
+    public record ScanData(List<ScanRecord> records) implements OpResultData {}
+    public record ListData(List<String> keys) implements OpResultData {}
+    public record CasData(String key, long versionId) implements OpResultData {}
 
-    public static OpResult ok(String opId, String opType) {
-        return new OpResult(opId, opType, "ok", null, null);
-    }
+    public record ScanRecord(String key, String value, long versionId) {}
 
-    public static OpResult okWithVersion(String opId, String opType, long versionId) {
-        try {
-            ObjectNode node = MAPPER.createObjectNode();
-            node.put("version_id", versionId);
-            return new OpResult(opId, opType, "ok", MAPPER.writeValueAsBytes(node), null);
-        } catch (Exception e) {
-            return ok(opId, opType);
-        }
-    }
-
-    public static OpResult notFound(String opId, String opType) {
-        return new OpResult(opId, opType, "not_found", null, null);
-    }
-
-    public static OpResult versionMismatch(String opId, String opType) {
-        return new OpResult(opId, opType, "version_mismatch", null, null);
-    }
-
-    public static OpResult get(String opId, String value, long versionId) {
-        return get(opId, null, value, versionId);
+    public static OpResult put(String opId, String key, long versionId) {
+        return new OpResult(opId, "ok", null, new PutData(key, versionId));
     }
 
     public static OpResult get(String opId, String key, String value, long versionId) {
-        try {
-            ObjectNode node = MAPPER.createObjectNode();
-            if (key != null) {
-                node.put("key", key);
-            }
-            node.put("value", value);
-            node.put("version_id", versionId);
-            return new OpResult(opId, "get", "ok", MAPPER.writeValueAsBytes(node), null);
-        } catch (Exception e) {
-            return error(opId, "get", e.getMessage());
-        }
+        return new OpResult(opId, "ok", null, new GetData(key, value, versionId));
     }
 
-    public static OpResult rangeScan(String opId, List<RangeScanRecord> records) {
-        try {
-            ObjectNode node = MAPPER.createObjectNode();
-            ArrayNode arr = node.putArray("records");
-            for (RangeScanRecord r : records) {
-                ObjectNode rec = arr.addObject();
-                rec.put("key", r.key());
-                rec.put("value", r.value());
-                rec.put("version_id", r.versionId());
-            }
-            return new OpResult(opId, "range_scan", "ok", MAPPER.writeValueAsBytes(node), null);
-        } catch (Exception e) {
-            return error(opId, "range_scan", e.getMessage());
-        }
+    public static OpResult delete(String opId) {
+        return new OpResult(opId, "ok", null, new DeleteData());
+    }
+
+    public static OpResult deleteRange(String opId) {
+        return new OpResult(opId, "ok", null, new DeleteRangeData());
+    }
+
+    public static OpResult scan(String opId, List<ScanRecord> records) {
+        return new OpResult(opId, "ok", null, new ScanData(records));
     }
 
     public static OpResult list(String opId, List<String> keys) {
-        try {
-            ObjectNode node = MAPPER.createObjectNode();
-            ArrayNode arr = node.putArray("keys");
-            for (String k : keys) {
-                arr.add(k);
-            }
-            return new OpResult(opId, "list", "ok", MAPPER.writeValueAsBytes(node), null);
-        } catch (Exception e) {
-            return error(opId, "list", e.getMessage());
-        }
+        return new OpResult(opId, "ok", null, new ListData(keys));
     }
 
-    public static OpResult okWithKeyAndVersion(String opId, String opType, String key, long versionId) {
-        try {
-            ObjectNode node = MAPPER.createObjectNode();
-            node.put("key", key);
-            node.put("version_id", versionId);
-            return new OpResult(opId, opType, "ok", MAPPER.writeValueAsBytes(node), null);
-        } catch (Exception e) {
-            return ok(opId, opType);
-        }
+    public static OpResult cas(String opId, String key, long versionId) {
+        return new OpResult(opId, "ok", null, new CasData(key, versionId));
     }
 
-    public static OpResult error(String opId, String opType, String message) {
-        return new OpResult(opId, opType, "error", null, message);
+    public static OpResult notFound(String opId) {
+        return new OpResult(opId, "not_found", null, null);
     }
 
-    public record RangeScanRecord(String key, String value, long versionId) {}
+    public static OpResult versionMismatch(String opId) {
+        return new OpResult(opId, "version_mismatch", null, null);
+    }
+
+    public static OpResult error(String opId, String message) {
+        return new OpResult(opId, "error", message, null);
+    }
 }

@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"google.golang.org/grpc"
@@ -59,12 +58,10 @@ func (c *GrpcAdapterClient) ExecuteBatch(ctx context.Context, batchID string, op
 		if op.ID == "" {
 			continue
 		}
-		opType, payload := serializeOp(op.Kind)
-		protoOps = append(protoOps, &proto.Operation{
-			OpId:    op.ID,
-			OpType:  opType,
-			Payload: payload,
-		})
+		protoOp := serializeOp(op.ID, op.Kind)
+		if protoOp != nil {
+			protoOps = append(protoOps, protoOp)
+		}
 	}
 
 	resp, err := c.client.ExecuteBatch(ctx, &proto.BatchRequest{
@@ -92,14 +89,14 @@ func (c *GrpcAdapterClient) ReadState(ctx context.Context, keyPrefix string) (ma
 
 	result := make(map[string]*reference.RecordState, len(resp.GetRecords()))
 	for _, record := range resp.GetRecords() {
-		if record.Value == nil {
+		if record.GetPayload() == nil {
 			result[record.GetKey()] = nil
 			continue
 		}
-		value := string(record.GetValue())
+		value := string(record.GetPayload())
 		var vid uint64
-		if v, ok := record.GetMetadata()["version_id"]; ok {
-			fmt.Sscanf(v, "%d", &vid)
+		if record.GetMeta() != nil {
+			vid = record.GetMeta().GetVersionId()
 		}
 		result[record.GetKey()] = &reference.RecordState{
 			Value:     &value,
@@ -132,58 +129,92 @@ func CleanupPrefix(addr, keyPrefix string) error {
 // Serialization helpers
 // ---------------------------------------------------------------------------
 
-func serializeOp(kind reference.OpKind) (string, []byte) {
+func serializeOp(id string, kind reference.OpKind) *proto.Operation {
 	switch kind.Type {
 	case reference.OpKindPut:
-		if kind.Sequence {
-			return "sequence_put", mustJSON(map[string]interface{}{"prefix": kind.Prefix, "value": kind.Value, "delta": kind.Delta})
+		return &proto.Operation{
+			OpId: id,
+			Op: &proto.Operation_Put{Put: &proto.PutOp{
+				Key:       kind.Key,
+				Value:     []byte(kind.Value),
+				Ephemeral: kind.Ephemeral,
+				IndexName: kind.IndexName,
+				IndexKey:  kind.IndexKey,
+				Sequence:  kind.Sequence,
+				Prefix:    kind.Prefix,
+				Delta:     kind.Delta,
+			}},
 		}
-		if kind.Ephemeral {
-			return "ephemeral_put", mustJSON(map[string]interface{}{"key": kind.Key, "value": kind.Value})
-		}
-		if kind.IndexName != "" {
-			return "indexed_put", mustJSON(map[string]interface{}{"key": kind.Key, "value": kind.Value, "index_name": kind.IndexName, "index_key": kind.IndexKey})
-		}
-		return "put", mustJSON(map[string]interface{}{"key": kind.Key, "value": kind.Value})
 	case reference.OpKindGet:
-		opType := "get"
-		switch kind.Comparison {
-		case reference.ComparisonFloor:
-			opType = "get_floor"
-		case reference.ComparisonCeiling:
-			opType = "get_ceiling"
-		case reference.ComparisonLower:
-			opType = "get_lower"
-		case reference.ComparisonHigher:
-			opType = "get_higher"
+		return &proto.Operation{
+			OpId: id,
+			Op: &proto.Operation_Get{Get: &proto.GetOp{
+				Key:        kind.Key,
+				Comparison: kind.Comparison.String(),
+			}},
 		}
-		return opType, mustJSON(map[string]interface{}{"key": kind.Key})
 	case reference.OpKindDelete:
-		return "delete", mustJSON(map[string]interface{}{"key": kind.Key})
+		return &proto.Operation{
+			OpId: id,
+			Op: &proto.Operation_Delete{Delete: &proto.DeleteOp{
+				Key: kind.Key,
+			}},
+		}
 	case reference.OpKindDeleteRange:
-		return "delete_range", mustJSON(map[string]interface{}{"start": kind.Start, "end": kind.End})
-	case reference.OpKindList:
-		if kind.IndexName != "" {
-			return "indexed_list", mustJSON(map[string]interface{}{"index_name": kind.IndexName, "start": kind.Start, "end": kind.End})
+		return &proto.Operation{
+			OpId: id,
+			Op: &proto.Operation_DeleteRange{DeleteRange: &proto.DeleteRangeOp{
+				Start: kind.Start,
+				End:   kind.End,
+			}},
 		}
-		return "list", mustJSON(map[string]interface{}{"start": kind.Start, "end": kind.End})
 	case reference.OpKindScan:
-		if kind.IndexName != "" {
-			return "indexed_range_scan", mustJSON(map[string]interface{}{"index_name": kind.IndexName, "start": kind.Start, "end": kind.End})
+		return &proto.Operation{
+			OpId: id,
+			Op: &proto.Operation_Scan{Scan: &proto.ScanOp{
+				Start:     kind.Start,
+				End:       kind.End,
+				IndexName: kind.IndexName,
+			}},
 		}
-		return "range_scan", mustJSON(map[string]interface{}{"start": kind.Start, "end": kind.End})
+	case reference.OpKindList:
+		return &proto.Operation{
+			OpId: id,
+			Op: &proto.Operation_List{List: &proto.ListOp{
+				Start:     kind.Start,
+				End:       kind.End,
+				IndexName: kind.IndexName,
+			}},
+		}
 	case reference.OpKindCas:
-		return "cas", mustJSON(map[string]interface{}{"key": kind.Key, "expected_version_id": kind.ExpectedVersionID, "new_value": kind.NewValue})
-	case reference.OpKindWatchStart:
-		return "watch_start", mustJSON(map[string]interface{}{"key": kind.Prefix})
-	case reference.OpKindSessionRestart:
-		return "session_restart", nil
-	case reference.OpKindGetNotifications:
-		return "get_notifications", nil
-	case reference.OpKindFence:
-		return "fence", nil
+		return &proto.Operation{
+			OpId: id,
+			Op: &proto.Operation_Cas{Cas: &proto.CasOp{
+				Key:               kind.Key,
+				ExpectedVersionId: kind.ExpectedVersionID,
+				NewValue:          []byte(kind.NewValue),
+			}},
+		}
 	default:
-		return "unknown", nil
+		return &proto.Operation{OpId: id}
+	}
+}
+
+// extractRecord converts a proto Record into key/value/versionID fields on
+// the AdapterOpResult.
+func extractRecord(rec *proto.Record, result *reference.AdapterOpResult) {
+	if rec == nil {
+		return
+	}
+	k := rec.GetKey()
+	result.Key = &k
+	if rec.GetPayload() != nil {
+		v := string(rec.GetPayload())
+		result.Value = &v
+	}
+	if rec.GetMeta() != nil {
+		vid := rec.GetMeta().GetVersionId()
+		result.VersionID = &vid
 	}
 }
 
@@ -197,72 +228,29 @@ func parseOpResult(r *proto.OpResult) reference.AdapterOpResult {
 		result.Message = &msg
 	}
 
-	if len(r.GetPayload()) == 0 {
-		return result
-	}
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal(r.Payload, &payload); err != nil {
-		return result
-	}
-
-	if key, ok := payload["key"].(string); ok {
-		result.Key = &key
-	}
-	if value, ok := payload["value"].(string); ok {
-		result.Value = &value
-	}
-	if vid, ok := payload["version_id"].(float64); ok {
-		v := uint64(vid)
-		result.VersionID = &v
-	}
-	if records, ok := payload["records"].([]interface{}); ok {
-		for _, rec := range records {
-			if rm, ok := rec.(map[string]interface{}); ok {
-				rr := reference.RangeRecord{}
-				if k, ok := rm["key"].(string); ok {
-					rr.Key = k
-				}
-				if v, ok := rm["value"].(string); ok {
-					rr.Value = v
-				}
-				if vid, ok := rm["version_id"].(float64); ok {
-					rr.VersionID = uint64(vid)
-				}
-				result.Records = append(result.Records, rr)
+	switch {
+	case r.GetPut() != nil:
+		extractRecord(r.GetPut().GetRecord(), &result)
+	case r.GetGet() != nil:
+		extractRecord(r.GetGet().GetRecord(), &result)
+	case r.GetCas() != nil:
+		extractRecord(r.GetCas().GetRecord(), &result)
+	case r.GetScan() != nil:
+		for _, rec := range r.GetScan().GetRecords() {
+			rr := reference.RangeRecord{
+				Key: rec.GetKey(),
 			}
-		}
-	}
-	if keys, ok := payload["keys"].([]interface{}); ok {
-		for _, k := range keys {
-			if s, ok := k.(string); ok {
-				result.Keys = append(result.Keys, s)
+			if rec.GetPayload() != nil {
+				rr.Value = string(rec.GetPayload())
 			}
-		}
-	}
-	if dc, ok := payload["deleted_count"].(float64); ok {
-		v := uint64(dc)
-		result.DeletedCount = &v
-	}
-	if notifs, ok := payload["notifications"]; ok {
-		data, err := json.Marshal(notifs)
-		if err == nil {
-			var nrs []reference.NotificationRecord
-			if json.Unmarshal(data, &nrs) == nil {
-				result.Notifications = nrs
+			if rec.GetMeta() != nil {
+				rr.VersionID = rec.GetMeta().GetVersionId()
 			}
+			result.Records = append(result.Records, rr)
 		}
+	case r.GetList() != nil:
+		result.Keys = r.GetList().GetKeys()
 	}
 
 	return result
-}
-
-// mustJSON is kept local since ext.MustJSON drops the error silently
-// and this package already imports encoding/json.
-func mustJSON(v interface{}) []byte {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return nil
-	}
-	return data
 }

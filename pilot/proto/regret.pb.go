@@ -21,28 +21,27 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type BatchRequest struct {
+type RecordMeta struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BatchId       string                 `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
-	Ops           []*Operation           `protobuf:"bytes,2,rep,name=ops,proto3" json:"ops,omitempty"`
+	VersionId     uint64                 `protobuf:"varint,1,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BatchRequest) Reset() {
-	*x = BatchRequest{}
+func (x *RecordMeta) Reset() {
+	*x = RecordMeta{}
 	mi := &file_regret_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BatchRequest) String() string {
+func (x *RecordMeta) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BatchRequest) ProtoMessage() {}
+func (*RecordMeta) ProtoMessage() {}
 
-func (x *BatchRequest) ProtoReflect() protoreflect.Message {
+func (x *RecordMeta) ProtoReflect() protoreflect.Message {
 	mi := &file_regret_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -54,37 +53,818 @@ func (x *BatchRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BatchRequest.ProtoReflect.Descriptor instead.
-func (*BatchRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use RecordMeta.ProtoReflect.Descriptor instead.
+func (*RecordMeta) Descriptor() ([]byte, []int) {
 	return file_regret_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *BatchRequest) GetBatchId() string {
+func (x *RecordMeta) GetVersionId() uint64 {
 	if x != nil {
-		return x.BatchId
+		return x.VersionId
+	}
+	return 0
+}
+
+type Record struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Meta          *RecordMeta            `protobuf:"bytes,2,opt,name=meta,proto3" json:"meta,omitempty"`
+	Payload       []byte                 `protobuf:"bytes,3,opt,name=payload,proto3,oneof" json:"payload,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Record) Reset() {
+	*x = Record{}
+	mi := &file_regret_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Record) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Record) ProtoMessage() {}
+
+func (x *Record) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Record.ProtoReflect.Descriptor instead.
+func (*Record) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Record) GetKey() string {
+	if x != nil {
+		return x.Key
 	}
 	return ""
 }
 
-func (x *BatchRequest) GetOps() []*Operation {
+func (x *Record) GetMeta() *RecordMeta {
 	if x != nil {
-		return x.Ops
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *Record) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+type PutOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Ephemeral     bool                   `protobuf:"varint,3,opt,name=ephemeral,proto3" json:"ephemeral,omitempty"`
+	IndexName     string                 `protobuf:"bytes,4,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
+	IndexKey      string                 `protobuf:"bytes,5,opt,name=index_key,json=indexKey,proto3" json:"index_key,omitempty"`
+	Sequence      bool                   `protobuf:"varint,6,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	Prefix        string                 `protobuf:"bytes,7,opt,name=prefix,proto3" json:"prefix,omitempty"`
+	Delta         int64                  `protobuf:"varint,8,opt,name=delta,proto3" json:"delta,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PutOp) Reset() {
+	*x = PutOp{}
+	mi := &file_regret_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PutOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PutOp) ProtoMessage() {}
+
+func (x *PutOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PutOp.ProtoReflect.Descriptor instead.
+func (*PutOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *PutOp) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *PutOp) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *PutOp) GetEphemeral() bool {
+	if x != nil {
+		return x.Ephemeral
+	}
+	return false
+}
+
+func (x *PutOp) GetIndexName() string {
+	if x != nil {
+		return x.IndexName
+	}
+	return ""
+}
+
+func (x *PutOp) GetIndexKey() string {
+	if x != nil {
+		return x.IndexKey
+	}
+	return ""
+}
+
+func (x *PutOp) GetSequence() bool {
+	if x != nil {
+		return x.Sequence
+	}
+	return false
+}
+
+func (x *PutOp) GetPrefix() string {
+	if x != nil {
+		return x.Prefix
+	}
+	return ""
+}
+
+func (x *PutOp) GetDelta() int64 {
+	if x != nil {
+		return x.Delta
+	}
+	return 0
+}
+
+type PutResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Record        *Record                `protobuf:"bytes,1,opt,name=record,proto3" json:"record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PutResult) Reset() {
+	*x = PutResult{}
+	mi := &file_regret_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PutResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PutResult) ProtoMessage() {}
+
+func (x *PutResult) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PutResult.ProtoReflect.Descriptor instead.
+func (*PutResult) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *PutResult) GetRecord() *Record {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+type GetOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Comparison    string                 `protobuf:"bytes,2,opt,name=comparison,proto3" json:"comparison,omitempty"` // equal, floor, ceiling, lower, higher
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOp) Reset() {
+	*x = GetOp{}
+	mi := &file_regret_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOp) ProtoMessage() {}
+
+func (x *GetOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOp.ProtoReflect.Descriptor instead.
+func (*GetOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetOp) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *GetOp) GetComparison() string {
+	if x != nil {
+		return x.Comparison
+	}
+	return ""
+}
+
+type GetResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Record        *Record                `protobuf:"bytes,1,opt,name=record,proto3" json:"record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetResult) Reset() {
+	*x = GetResult{}
+	mi := &file_regret_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetResult) ProtoMessage() {}
+
+func (x *GetResult) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetResult.ProtoReflect.Descriptor instead.
+func (*GetResult) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetResult) GetRecord() *Record {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+type DeleteOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteOp) Reset() {
+	*x = DeleteOp{}
+	mi := &file_regret_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteOp) ProtoMessage() {}
+
+func (x *DeleteOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteOp.ProtoReflect.Descriptor instead.
+func (*DeleteOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *DeleteOp) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+type DeleteResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteResult) Reset() {
+	*x = DeleteResult{}
+	mi := &file_regret_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteResult) ProtoMessage() {}
+
+func (x *DeleteResult) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteResult.ProtoReflect.Descriptor instead.
+func (*DeleteResult) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{7}
+}
+
+type DeleteRangeOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Start         string                 `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	End           string                 `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteRangeOp) Reset() {
+	*x = DeleteRangeOp{}
+	mi := &file_regret_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteRangeOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteRangeOp) ProtoMessage() {}
+
+func (x *DeleteRangeOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteRangeOp.ProtoReflect.Descriptor instead.
+func (*DeleteRangeOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DeleteRangeOp) GetStart() string {
+	if x != nil {
+		return x.Start
+	}
+	return ""
+}
+
+func (x *DeleteRangeOp) GetEnd() string {
+	if x != nil {
+		return x.End
+	}
+	return ""
+}
+
+type DeleteRangeResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteRangeResult) Reset() {
+	*x = DeleteRangeResult{}
+	mi := &file_regret_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteRangeResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteRangeResult) ProtoMessage() {}
+
+func (x *DeleteRangeResult) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteRangeResult.ProtoReflect.Descriptor instead.
+func (*DeleteRangeResult) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{9}
+}
+
+type ScanOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Start         string                 `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	End           string                 `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
+	IndexName     string                 `protobuf:"bytes,3,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScanOp) Reset() {
+	*x = ScanOp{}
+	mi := &file_regret_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScanOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScanOp) ProtoMessage() {}
+
+func (x *ScanOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScanOp.ProtoReflect.Descriptor instead.
+func (*ScanOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ScanOp) GetStart() string {
+	if x != nil {
+		return x.Start
+	}
+	return ""
+}
+
+func (x *ScanOp) GetEnd() string {
+	if x != nil {
+		return x.End
+	}
+	return ""
+}
+
+func (x *ScanOp) GetIndexName() string {
+	if x != nil {
+		return x.IndexName
+	}
+	return ""
+}
+
+type ScanResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Records       []*Record              `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScanResult) Reset() {
+	*x = ScanResult{}
+	mi := &file_regret_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScanResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScanResult) ProtoMessage() {}
+
+func (x *ScanResult) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScanResult.ProtoReflect.Descriptor instead.
+func (*ScanResult) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ScanResult) GetRecords() []*Record {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+type ListOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Start         string                 `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	End           string                 `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
+	IndexName     string                 `protobuf:"bytes,3,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListOp) Reset() {
+	*x = ListOp{}
+	mi := &file_regret_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListOp) ProtoMessage() {}
+
+func (x *ListOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListOp.ProtoReflect.Descriptor instead.
+func (*ListOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ListOp) GetStart() string {
+	if x != nil {
+		return x.Start
+	}
+	return ""
+}
+
+func (x *ListOp) GetEnd() string {
+	if x != nil {
+		return x.End
+	}
+	return ""
+}
+
+func (x *ListOp) GetIndexName() string {
+	if x != nil {
+		return x.IndexName
+	}
+	return ""
+}
+
+type ListResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Keys          []string               `protobuf:"bytes,1,rep,name=keys,proto3" json:"keys,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListResult) Reset() {
+	*x = ListResult{}
+	mi := &file_regret_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListResult) ProtoMessage() {}
+
+func (x *ListResult) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListResult.ProtoReflect.Descriptor instead.
+func (*ListResult) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ListResult) GetKeys() []string {
+	if x != nil {
+		return x.Keys
+	}
+	return nil
+}
+
+type CasOp struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Key               string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	ExpectedVersionId uint64                 `protobuf:"varint,2,opt,name=expected_version_id,json=expectedVersionId,proto3" json:"expected_version_id,omitempty"`
+	NewValue          []byte                 `protobuf:"bytes,3,opt,name=new_value,json=newValue,proto3" json:"new_value,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *CasOp) Reset() {
+	*x = CasOp{}
+	mi := &file_regret_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CasOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CasOp) ProtoMessage() {}
+
+func (x *CasOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CasOp.ProtoReflect.Descriptor instead.
+func (*CasOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *CasOp) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *CasOp) GetExpectedVersionId() uint64 {
+	if x != nil {
+		return x.ExpectedVersionId
+	}
+	return 0
+}
+
+func (x *CasOp) GetNewValue() []byte {
+	if x != nil {
+		return x.NewValue
+	}
+	return nil
+}
+
+type CasResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Record        *Record                `protobuf:"bytes,1,opt,name=record,proto3" json:"record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CasResult) Reset() {
+	*x = CasResult{}
+	mi := &file_regret_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CasResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CasResult) ProtoMessage() {}
+
+func (x *CasResult) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CasResult.ProtoReflect.Descriptor instead.
+func (*CasResult) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *CasResult) GetRecord() *Record {
+	if x != nil {
+		return x.Record
 	}
 	return nil
 }
 
 type Operation struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OpId          string                 `protobuf:"bytes,1,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
-	OpType        string                 `protobuf:"bytes,2,opt,name=op_type,json=opType,proto3" json:"op_type,omitempty"`
-	Payload       []byte                 `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	OpId  string                 `protobuf:"bytes,1,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
+	// Types that are valid to be assigned to Op:
+	//
+	//	*Operation_Put
+	//	*Operation_Get
+	//	*Operation_Delete
+	//	*Operation_DeleteRange
+	//	*Operation_Scan
+	//	*Operation_List
+	//	*Operation_Cas
+	Op            isOperation_Op `protobuf_oneof:"op"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Operation) Reset() {
 	*x = Operation{}
-	mi := &file_regret_proto_msgTypes[1]
+	mi := &file_regret_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -96,7 +876,7 @@ func (x *Operation) String() string {
 func (*Operation) ProtoMessage() {}
 
 func (x *Operation) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[1]
+	mi := &file_regret_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -109,7 +889,7 @@ func (x *Operation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Operation.ProtoReflect.Descriptor instead.
 func (*Operation) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{1}
+	return file_regret_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Operation) GetOpId() string {
@@ -119,85 +899,144 @@ func (x *Operation) GetOpId() string {
 	return ""
 }
 
-func (x *Operation) GetOpType() string {
+func (x *Operation) GetOp() isOperation_Op {
 	if x != nil {
-		return x.OpType
-	}
-	return ""
-}
-
-func (x *Operation) GetPayload() []byte {
-	if x != nil {
-		return x.Payload
+		return x.Op
 	}
 	return nil
 }
 
-type BatchResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	BatchId       string                 `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
-	Results       []*OpResult            `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BatchResponse) Reset() {
-	*x = BatchResponse{}
-	mi := &file_regret_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BatchResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BatchResponse) ProtoMessage() {}
-
-func (x *BatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[2]
+func (x *Operation) GetPut() *PutOp {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
+		if x, ok := x.Op.(*Operation_Put); ok {
+			return x.Put
 		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BatchResponse.ProtoReflect.Descriptor instead.
-func (*BatchResponse) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *BatchResponse) GetBatchId() string {
-	if x != nil {
-		return x.BatchId
-	}
-	return ""
-}
-
-func (x *BatchResponse) GetResults() []*OpResult {
-	if x != nil {
-		return x.Results
 	}
 	return nil
 }
+
+func (x *Operation) GetGet() *GetOp {
+	if x != nil {
+		if x, ok := x.Op.(*Operation_Get); ok {
+			return x.Get
+		}
+	}
+	return nil
+}
+
+func (x *Operation) GetDelete() *DeleteOp {
+	if x != nil {
+		if x, ok := x.Op.(*Operation_Delete); ok {
+			return x.Delete
+		}
+	}
+	return nil
+}
+
+func (x *Operation) GetDeleteRange() *DeleteRangeOp {
+	if x != nil {
+		if x, ok := x.Op.(*Operation_DeleteRange); ok {
+			return x.DeleteRange
+		}
+	}
+	return nil
+}
+
+func (x *Operation) GetScan() *ScanOp {
+	if x != nil {
+		if x, ok := x.Op.(*Operation_Scan); ok {
+			return x.Scan
+		}
+	}
+	return nil
+}
+
+func (x *Operation) GetList() *ListOp {
+	if x != nil {
+		if x, ok := x.Op.(*Operation_List); ok {
+			return x.List
+		}
+	}
+	return nil
+}
+
+func (x *Operation) GetCas() *CasOp {
+	if x != nil {
+		if x, ok := x.Op.(*Operation_Cas); ok {
+			return x.Cas
+		}
+	}
+	return nil
+}
+
+type isOperation_Op interface {
+	isOperation_Op()
+}
+
+type Operation_Put struct {
+	Put *PutOp `protobuf:"bytes,2,opt,name=put,proto3,oneof"`
+}
+
+type Operation_Get struct {
+	Get *GetOp `protobuf:"bytes,3,opt,name=get,proto3,oneof"`
+}
+
+type Operation_Delete struct {
+	Delete *DeleteOp `protobuf:"bytes,4,opt,name=delete,proto3,oneof"`
+}
+
+type Operation_DeleteRange struct {
+	DeleteRange *DeleteRangeOp `protobuf:"bytes,5,opt,name=delete_range,json=deleteRange,proto3,oneof"`
+}
+
+type Operation_Scan struct {
+	Scan *ScanOp `protobuf:"bytes,6,opt,name=scan,proto3,oneof"`
+}
+
+type Operation_List struct {
+	List *ListOp `protobuf:"bytes,7,opt,name=list,proto3,oneof"`
+}
+
+type Operation_Cas struct {
+	Cas *CasOp `protobuf:"bytes,8,opt,name=cas,proto3,oneof"`
+}
+
+func (*Operation_Put) isOperation_Op() {}
+
+func (*Operation_Get) isOperation_Op() {}
+
+func (*Operation_Delete) isOperation_Op() {}
+
+func (*Operation_DeleteRange) isOperation_Op() {}
+
+func (*Operation_Scan) isOperation_Op() {}
+
+func (*Operation_List) isOperation_Op() {}
+
+func (*Operation_Cas) isOperation_Op() {}
 
 type OpResult struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OpId          string                 `protobuf:"bytes,1,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
-	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	Payload       []byte                 `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
-	Message       string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	OpId    string                 `protobuf:"bytes,1,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
+	Status  string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Message string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// Types that are valid to be assigned to Result:
+	//
+	//	*OpResult_Put
+	//	*OpResult_Get
+	//	*OpResult_Delete
+	//	*OpResult_DeleteRange
+	//	*OpResult_Scan
+	//	*OpResult_List
+	//	*OpResult_Cas
+	Result        isOpResult_Result `protobuf_oneof:"result"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OpResult) Reset() {
 	*x = OpResult{}
-	mi := &file_regret_proto_msgTypes[3]
+	mi := &file_regret_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -209,7 +1048,7 @@ func (x *OpResult) String() string {
 func (*OpResult) ProtoMessage() {}
 
 func (x *OpResult) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[3]
+	mi := &file_regret_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -222,7 +1061,7 @@ func (x *OpResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpResult.ProtoReflect.Descriptor instead.
 func (*OpResult) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{3}
+	return file_regret_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *OpResult) GetOpId() string {
@@ -239,18 +1078,231 @@ func (x *OpResult) GetStatus() string {
 	return ""
 }
 
-func (x *OpResult) GetPayload() []byte {
-	if x != nil {
-		return x.Payload
-	}
-	return nil
-}
-
 func (x *OpResult) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
 	return ""
+}
+
+func (x *OpResult) GetResult() isOpResult_Result {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+func (x *OpResult) GetPut() *PutResult {
+	if x != nil {
+		if x, ok := x.Result.(*OpResult_Put); ok {
+			return x.Put
+		}
+	}
+	return nil
+}
+
+func (x *OpResult) GetGet() *GetResult {
+	if x != nil {
+		if x, ok := x.Result.(*OpResult_Get); ok {
+			return x.Get
+		}
+	}
+	return nil
+}
+
+func (x *OpResult) GetDelete() *DeleteResult {
+	if x != nil {
+		if x, ok := x.Result.(*OpResult_Delete); ok {
+			return x.Delete
+		}
+	}
+	return nil
+}
+
+func (x *OpResult) GetDeleteRange() *DeleteRangeResult {
+	if x != nil {
+		if x, ok := x.Result.(*OpResult_DeleteRange); ok {
+			return x.DeleteRange
+		}
+	}
+	return nil
+}
+
+func (x *OpResult) GetScan() *ScanResult {
+	if x != nil {
+		if x, ok := x.Result.(*OpResult_Scan); ok {
+			return x.Scan
+		}
+	}
+	return nil
+}
+
+func (x *OpResult) GetList() *ListResult {
+	if x != nil {
+		if x, ok := x.Result.(*OpResult_List); ok {
+			return x.List
+		}
+	}
+	return nil
+}
+
+func (x *OpResult) GetCas() *CasResult {
+	if x != nil {
+		if x, ok := x.Result.(*OpResult_Cas); ok {
+			return x.Cas
+		}
+	}
+	return nil
+}
+
+type isOpResult_Result interface {
+	isOpResult_Result()
+}
+
+type OpResult_Put struct {
+	Put *PutResult `protobuf:"bytes,4,opt,name=put,proto3,oneof"`
+}
+
+type OpResult_Get struct {
+	Get *GetResult `protobuf:"bytes,5,opt,name=get,proto3,oneof"`
+}
+
+type OpResult_Delete struct {
+	Delete *DeleteResult `protobuf:"bytes,6,opt,name=delete,proto3,oneof"`
+}
+
+type OpResult_DeleteRange struct {
+	DeleteRange *DeleteRangeResult `protobuf:"bytes,7,opt,name=delete_range,json=deleteRange,proto3,oneof"`
+}
+
+type OpResult_Scan struct {
+	Scan *ScanResult `protobuf:"bytes,8,opt,name=scan,proto3,oneof"`
+}
+
+type OpResult_List struct {
+	List *ListResult `protobuf:"bytes,9,opt,name=list,proto3,oneof"`
+}
+
+type OpResult_Cas struct {
+	Cas *CasResult `protobuf:"bytes,10,opt,name=cas,proto3,oneof"`
+}
+
+func (*OpResult_Put) isOpResult_Result() {}
+
+func (*OpResult_Get) isOpResult_Result() {}
+
+func (*OpResult_Delete) isOpResult_Result() {}
+
+func (*OpResult_DeleteRange) isOpResult_Result() {}
+
+func (*OpResult_Scan) isOpResult_Result() {}
+
+func (*OpResult_List) isOpResult_Result() {}
+
+func (*OpResult_Cas) isOpResult_Result() {}
+
+type BatchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BatchId       string                 `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
+	Ops           []*Operation           `protobuf:"bytes,2,rep,name=ops,proto3" json:"ops,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchRequest) Reset() {
+	*x = BatchRequest{}
+	mi := &file_regret_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchRequest) ProtoMessage() {}
+
+func (x *BatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchRequest.ProtoReflect.Descriptor instead.
+func (*BatchRequest) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *BatchRequest) GetBatchId() string {
+	if x != nil {
+		return x.BatchId
+	}
+	return ""
+}
+
+func (x *BatchRequest) GetOps() []*Operation {
+	if x != nil {
+		return x.Ops
+	}
+	return nil
+}
+
+type BatchResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BatchId       string                 `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
+	Results       []*OpResult            `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchResponse) Reset() {
+	*x = BatchResponse{}
+	mi := &file_regret_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchResponse) ProtoMessage() {}
+
+func (x *BatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchResponse.ProtoReflect.Descriptor instead.
+func (*BatchResponse) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *BatchResponse) GetBatchId() string {
+	if x != nil {
+		return x.BatchId
+	}
+	return ""
+}
+
+func (x *BatchResponse) GetResults() []*OpResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
 }
 
 type ReadStateRequest struct {
@@ -262,7 +1314,7 @@ type ReadStateRequest struct {
 
 func (x *ReadStateRequest) Reset() {
 	*x = ReadStateRequest{}
-	mi := &file_regret_proto_msgTypes[4]
+	mi := &file_regret_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -274,7 +1326,7 @@ func (x *ReadStateRequest) String() string {
 func (*ReadStateRequest) ProtoMessage() {}
 
 func (x *ReadStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[4]
+	mi := &file_regret_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -287,7 +1339,7 @@ func (x *ReadStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadStateRequest.ProtoReflect.Descriptor instead.
 func (*ReadStateRequest) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{4}
+	return file_regret_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ReadStateRequest) GetKeyPrefix() string {
@@ -306,7 +1358,7 @@ type ReadStateResponse struct {
 
 func (x *ReadStateResponse) Reset() {
 	*x = ReadStateResponse{}
-	mi := &file_regret_proto_msgTypes[5]
+	mi := &file_regret_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -318,7 +1370,7 @@ func (x *ReadStateResponse) String() string {
 func (*ReadStateResponse) ProtoMessage() {}
 
 func (x *ReadStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[5]
+	mi := &file_regret_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -331,72 +1383,12 @@ func (x *ReadStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadStateResponse.ProtoReflect.Descriptor instead.
 func (*ReadStateResponse) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{5}
+	return file_regret_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ReadStateResponse) GetRecords() []*Record {
 	if x != nil {
 		return x.Records
-	}
-	return nil
-}
-
-type Record struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3,oneof" json:"value,omitempty"`
-	Metadata      map[string]string      `protobuf:"bytes,3,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Record) Reset() {
-	*x = Record{}
-	mi := &file_regret_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Record) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Record) ProtoMessage() {}
-
-func (x *Record) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Record.ProtoReflect.Descriptor instead.
-func (*Record) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *Record) GetKey() string {
-	if x != nil {
-		return x.Key
-	}
-	return ""
-}
-
-func (x *Record) GetValue() []byte {
-	if x != nil {
-		return x.Value
-	}
-	return nil
-}
-
-func (x *Record) GetMetadata() map[string]string {
-	if x != nil {
-		return x.Metadata
 	}
 	return nil
 }
@@ -410,7 +1402,7 @@ type CleanupRequest struct {
 
 func (x *CleanupRequest) Reset() {
 	*x = CleanupRequest{}
-	mi := &file_regret_proto_msgTypes[7]
+	mi := &file_regret_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -422,7 +1414,7 @@ func (x *CleanupRequest) String() string {
 func (*CleanupRequest) ProtoMessage() {}
 
 func (x *CleanupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[7]
+	mi := &file_regret_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -435,7 +1427,7 @@ func (x *CleanupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupRequest.ProtoReflect.Descriptor instead.
 func (*CleanupRequest) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{7}
+	return file_regret_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CleanupRequest) GetKeyPrefix() string {
@@ -453,7 +1445,7 @@ type CleanupResponse struct {
 
 func (x *CleanupResponse) Reset() {
 	*x = CleanupResponse{}
-	mi := &file_regret_proto_msgTypes[8]
+	mi := &file_regret_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -465,7 +1457,7 @@ func (x *CleanupResponse) String() string {
 func (*CleanupResponse) ProtoMessage() {}
 
 func (x *CleanupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[8]
+	mi := &file_regret_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -478,42 +1470,106 @@ func (x *CleanupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupResponse.ProtoReflect.Descriptor instead.
 func (*CleanupResponse) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{8}
+	return file_regret_proto_rawDescGZIP(), []int{23}
 }
 
 var File_regret_proto protoreflect.FileDescriptor
 
 const file_regret_proto_rawDesc = "" +
 	"\n" +
-	"\fregret.proto\x12\tregret.v1\"Q\n" +
-	"\fBatchRequest\x12\x19\n" +
-	"\bbatch_id\x18\x01 \x01(\tR\abatchId\x12&\n" +
-	"\x03ops\x18\x02 \x03(\v2\x14.regret.v1.OperationR\x03ops\"S\n" +
+	"\fregret.proto\x12\tregret.v1\"+\n" +
+	"\n" +
+	"RecordMeta\x12\x1d\n" +
+	"\n" +
+	"version_id\x18\x01 \x01(\x04R\tversionId\"p\n" +
+	"\x06Record\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12)\n" +
+	"\x04meta\x18\x02 \x01(\v2\x15.regret.v1.RecordMetaR\x04meta\x12\x1d\n" +
+	"\apayload\x18\x03 \x01(\fH\x00R\apayload\x88\x01\x01B\n" +
+	"\n" +
+	"\b_payload\"\xd3\x01\n" +
+	"\x05PutOp\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\x12\x1c\n" +
+	"\tephemeral\x18\x03 \x01(\bR\tephemeral\x12\x1d\n" +
+	"\n" +
+	"index_name\x18\x04 \x01(\tR\tindexName\x12\x1b\n" +
+	"\tindex_key\x18\x05 \x01(\tR\bindexKey\x12\x1a\n" +
+	"\bsequence\x18\x06 \x01(\bR\bsequence\x12\x16\n" +
+	"\x06prefix\x18\a \x01(\tR\x06prefix\x12\x14\n" +
+	"\x05delta\x18\b \x01(\x03R\x05delta\"6\n" +
+	"\tPutResult\x12)\n" +
+	"\x06record\x18\x01 \x01(\v2\x11.regret.v1.RecordR\x06record\"9\n" +
+	"\x05GetOp\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x1e\n" +
+	"\n" +
+	"comparison\x18\x02 \x01(\tR\n" +
+	"comparison\"6\n" +
+	"\tGetResult\x12)\n" +
+	"\x06record\x18\x01 \x01(\v2\x11.regret.v1.RecordR\x06record\"\x1c\n" +
+	"\bDeleteOp\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\"\x0e\n" +
+	"\fDeleteResult\"7\n" +
+	"\rDeleteRangeOp\x12\x14\n" +
+	"\x05start\x18\x01 \x01(\tR\x05start\x12\x10\n" +
+	"\x03end\x18\x02 \x01(\tR\x03end\"\x13\n" +
+	"\x11DeleteRangeResult\"O\n" +
+	"\x06ScanOp\x12\x14\n" +
+	"\x05start\x18\x01 \x01(\tR\x05start\x12\x10\n" +
+	"\x03end\x18\x02 \x01(\tR\x03end\x12\x1d\n" +
+	"\n" +
+	"index_name\x18\x03 \x01(\tR\tindexName\"9\n" +
+	"\n" +
+	"ScanResult\x12+\n" +
+	"\arecords\x18\x01 \x03(\v2\x11.regret.v1.RecordR\arecords\"O\n" +
+	"\x06ListOp\x12\x14\n" +
+	"\x05start\x18\x01 \x01(\tR\x05start\x12\x10\n" +
+	"\x03end\x18\x02 \x01(\tR\x03end\x12\x1d\n" +
+	"\n" +
+	"index_name\x18\x03 \x01(\tR\tindexName\" \n" +
+	"\n" +
+	"ListResult\x12\x12\n" +
+	"\x04keys\x18\x01 \x03(\tR\x04keys\"f\n" +
+	"\x05CasOp\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
+	"\x13expected_version_id\x18\x02 \x01(\x04R\x11expectedVersionId\x12\x1b\n" +
+	"\tnew_value\x18\x03 \x01(\fR\bnewValue\"6\n" +
+	"\tCasResult\x12)\n" +
+	"\x06record\x18\x01 \x01(\v2\x11.regret.v1.RecordR\x06record\"\xd8\x02\n" +
 	"\tOperation\x12\x13\n" +
-	"\x05op_id\x18\x01 \x01(\tR\x04opId\x12\x17\n" +
-	"\aop_type\x18\x02 \x01(\tR\x06opType\x12\x18\n" +
-	"\apayload\x18\x03 \x01(\fR\apayload\"Y\n" +
-	"\rBatchResponse\x12\x19\n" +
-	"\bbatch_id\x18\x01 \x01(\tR\abatchId\x12-\n" +
-	"\aresults\x18\x02 \x03(\v2\x13.regret.v1.OpResultR\aresults\"k\n" +
+	"\x05op_id\x18\x01 \x01(\tR\x04opId\x12$\n" +
+	"\x03put\x18\x02 \x01(\v2\x10.regret.v1.PutOpH\x00R\x03put\x12$\n" +
+	"\x03get\x18\x03 \x01(\v2\x10.regret.v1.GetOpH\x00R\x03get\x12-\n" +
+	"\x06delete\x18\x04 \x01(\v2\x13.regret.v1.DeleteOpH\x00R\x06delete\x12=\n" +
+	"\fdelete_range\x18\x05 \x01(\v2\x18.regret.v1.DeleteRangeOpH\x00R\vdeleteRange\x12'\n" +
+	"\x04scan\x18\x06 \x01(\v2\x11.regret.v1.ScanOpH\x00R\x04scan\x12'\n" +
+	"\x04list\x18\a \x01(\v2\x11.regret.v1.ListOpH\x00R\x04list\x12$\n" +
+	"\x03cas\x18\b \x01(\v2\x10.regret.v1.CasOpH\x00R\x03casB\x04\n" +
+	"\x02op\"\xa9\x03\n" +
 	"\bOpResult\x12\x13\n" +
 	"\x05op_id\x18\x01 \x01(\tR\x04opId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x18\n" +
-	"\apayload\x18\x03 \x01(\fR\apayload\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"1\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12(\n" +
+	"\x03put\x18\x04 \x01(\v2\x14.regret.v1.PutResultH\x00R\x03put\x12(\n" +
+	"\x03get\x18\x05 \x01(\v2\x14.regret.v1.GetResultH\x00R\x03get\x121\n" +
+	"\x06delete\x18\x06 \x01(\v2\x17.regret.v1.DeleteResultH\x00R\x06delete\x12A\n" +
+	"\fdelete_range\x18\a \x01(\v2\x1c.regret.v1.DeleteRangeResultH\x00R\vdeleteRange\x12+\n" +
+	"\x04scan\x18\b \x01(\v2\x15.regret.v1.ScanResultH\x00R\x04scan\x12+\n" +
+	"\x04list\x18\t \x01(\v2\x15.regret.v1.ListResultH\x00R\x04list\x12(\n" +
+	"\x03cas\x18\n" +
+	" \x01(\v2\x14.regret.v1.CasResultH\x00R\x03casB\b\n" +
+	"\x06result\"Q\n" +
+	"\fBatchRequest\x12\x19\n" +
+	"\bbatch_id\x18\x01 \x01(\tR\abatchId\x12&\n" +
+	"\x03ops\x18\x02 \x03(\v2\x14.regret.v1.OperationR\x03ops\"Y\n" +
+	"\rBatchResponse\x12\x19\n" +
+	"\bbatch_id\x18\x01 \x01(\tR\abatchId\x12-\n" +
+	"\aresults\x18\x02 \x03(\v2\x13.regret.v1.OpResultR\aresults\"1\n" +
 	"\x10ReadStateRequest\x12\x1d\n" +
 	"\n" +
 	"key_prefix\x18\x01 \x01(\tR\tkeyPrefix\"@\n" +
 	"\x11ReadStateResponse\x12+\n" +
-	"\arecords\x18\x01 \x03(\v2\x11.regret.v1.RecordR\arecords\"\xb9\x01\n" +
-	"\x06Record\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x19\n" +
-	"\x05value\x18\x02 \x01(\fH\x00R\x05value\x88\x01\x01\x12;\n" +
-	"\bmetadata\x18\x03 \x03(\v2\x1f.regret.v1.Record.MetadataEntryR\bmetadata\x1a;\n" +
-	"\rMetadataEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\b\n" +
-	"\x06_value\"/\n" +
+	"\arecords\x18\x01 \x03(\v2\x11.regret.v1.RecordR\arecords\"/\n" +
 	"\x0eCleanupRequest\x12\x1d\n" +
 	"\n" +
 	"key_prefix\x18\x01 \x01(\tR\tkeyPrefix\"\x11\n" +
@@ -521,7 +1577,8 @@ const file_regret_proto_rawDesc = "" +
 	"\x0eAdapterService\x12A\n" +
 	"\fExecuteBatch\x12\x17.regret.v1.BatchRequest\x1a\x18.regret.v1.BatchResponse\x12F\n" +
 	"\tReadState\x12\x1b.regret.v1.ReadStateRequest\x1a\x1c.regret.v1.ReadStateResponse\x12@\n" +
-	"\aCleanup\x12\x19.regret.v1.CleanupRequest\x1a\x1a.regret.v1.CleanupResponseb\x06proto3"
+	"\aCleanup\x12\x19.regret.v1.CleanupRequest\x1a\x1a.regret.v1.CleanupResponseB?\n" +
+	"\tregret.v1B\x06RegretZ*github.com/regret-io/regret/pilot-go/protob\x06proto3"
 
 var (
 	file_regret_proto_rawDescOnce sync.Once
@@ -535,35 +1592,67 @@ func file_regret_proto_rawDescGZIP() []byte {
 	return file_regret_proto_rawDescData
 }
 
-var file_regret_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_regret_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_regret_proto_goTypes = []any{
-	(*BatchRequest)(nil),      // 0: regret.v1.BatchRequest
-	(*Operation)(nil),         // 1: regret.v1.Operation
-	(*BatchResponse)(nil),     // 2: regret.v1.BatchResponse
-	(*OpResult)(nil),          // 3: regret.v1.OpResult
-	(*ReadStateRequest)(nil),  // 4: regret.v1.ReadStateRequest
-	(*ReadStateResponse)(nil), // 5: regret.v1.ReadStateResponse
-	(*Record)(nil),            // 6: regret.v1.Record
-	(*CleanupRequest)(nil),    // 7: regret.v1.CleanupRequest
-	(*CleanupResponse)(nil),   // 8: regret.v1.CleanupResponse
-	nil,                       // 9: regret.v1.Record.MetadataEntry
+	(*RecordMeta)(nil),        // 0: regret.v1.RecordMeta
+	(*Record)(nil),            // 1: regret.v1.Record
+	(*PutOp)(nil),             // 2: regret.v1.PutOp
+	(*PutResult)(nil),         // 3: regret.v1.PutResult
+	(*GetOp)(nil),             // 4: regret.v1.GetOp
+	(*GetResult)(nil),         // 5: regret.v1.GetResult
+	(*DeleteOp)(nil),          // 6: regret.v1.DeleteOp
+	(*DeleteResult)(nil),      // 7: regret.v1.DeleteResult
+	(*DeleteRangeOp)(nil),     // 8: regret.v1.DeleteRangeOp
+	(*DeleteRangeResult)(nil), // 9: regret.v1.DeleteRangeResult
+	(*ScanOp)(nil),            // 10: regret.v1.ScanOp
+	(*ScanResult)(nil),        // 11: regret.v1.ScanResult
+	(*ListOp)(nil),            // 12: regret.v1.ListOp
+	(*ListResult)(nil),        // 13: regret.v1.ListResult
+	(*CasOp)(nil),             // 14: regret.v1.CasOp
+	(*CasResult)(nil),         // 15: regret.v1.CasResult
+	(*Operation)(nil),         // 16: regret.v1.Operation
+	(*OpResult)(nil),          // 17: regret.v1.OpResult
+	(*BatchRequest)(nil),      // 18: regret.v1.BatchRequest
+	(*BatchResponse)(nil),     // 19: regret.v1.BatchResponse
+	(*ReadStateRequest)(nil),  // 20: regret.v1.ReadStateRequest
+	(*ReadStateResponse)(nil), // 21: regret.v1.ReadStateResponse
+	(*CleanupRequest)(nil),    // 22: regret.v1.CleanupRequest
+	(*CleanupResponse)(nil),   // 23: regret.v1.CleanupResponse
 }
 var file_regret_proto_depIdxs = []int32{
-	1, // 0: regret.v1.BatchRequest.ops:type_name -> regret.v1.Operation
-	3, // 1: regret.v1.BatchResponse.results:type_name -> regret.v1.OpResult
-	6, // 2: regret.v1.ReadStateResponse.records:type_name -> regret.v1.Record
-	9, // 3: regret.v1.Record.metadata:type_name -> regret.v1.Record.MetadataEntry
-	0, // 4: regret.v1.AdapterService.ExecuteBatch:input_type -> regret.v1.BatchRequest
-	4, // 5: regret.v1.AdapterService.ReadState:input_type -> regret.v1.ReadStateRequest
-	7, // 6: regret.v1.AdapterService.Cleanup:input_type -> regret.v1.CleanupRequest
-	2, // 7: regret.v1.AdapterService.ExecuteBatch:output_type -> regret.v1.BatchResponse
-	5, // 8: regret.v1.AdapterService.ReadState:output_type -> regret.v1.ReadStateResponse
-	8, // 9: regret.v1.AdapterService.Cleanup:output_type -> regret.v1.CleanupResponse
-	7, // [7:10] is the sub-list for method output_type
-	4, // [4:7] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	0,  // 0: regret.v1.Record.meta:type_name -> regret.v1.RecordMeta
+	1,  // 1: regret.v1.PutResult.record:type_name -> regret.v1.Record
+	1,  // 2: regret.v1.GetResult.record:type_name -> regret.v1.Record
+	1,  // 3: regret.v1.ScanResult.records:type_name -> regret.v1.Record
+	1,  // 4: regret.v1.CasResult.record:type_name -> regret.v1.Record
+	2,  // 5: regret.v1.Operation.put:type_name -> regret.v1.PutOp
+	4,  // 6: regret.v1.Operation.get:type_name -> regret.v1.GetOp
+	6,  // 7: regret.v1.Operation.delete:type_name -> regret.v1.DeleteOp
+	8,  // 8: regret.v1.Operation.delete_range:type_name -> regret.v1.DeleteRangeOp
+	10, // 9: regret.v1.Operation.scan:type_name -> regret.v1.ScanOp
+	12, // 10: regret.v1.Operation.list:type_name -> regret.v1.ListOp
+	14, // 11: regret.v1.Operation.cas:type_name -> regret.v1.CasOp
+	3,  // 12: regret.v1.OpResult.put:type_name -> regret.v1.PutResult
+	5,  // 13: regret.v1.OpResult.get:type_name -> regret.v1.GetResult
+	7,  // 14: regret.v1.OpResult.delete:type_name -> regret.v1.DeleteResult
+	9,  // 15: regret.v1.OpResult.delete_range:type_name -> regret.v1.DeleteRangeResult
+	11, // 16: regret.v1.OpResult.scan:type_name -> regret.v1.ScanResult
+	13, // 17: regret.v1.OpResult.list:type_name -> regret.v1.ListResult
+	15, // 18: regret.v1.OpResult.cas:type_name -> regret.v1.CasResult
+	16, // 19: regret.v1.BatchRequest.ops:type_name -> regret.v1.Operation
+	17, // 20: regret.v1.BatchResponse.results:type_name -> regret.v1.OpResult
+	1,  // 21: regret.v1.ReadStateResponse.records:type_name -> regret.v1.Record
+	18, // 22: regret.v1.AdapterService.ExecuteBatch:input_type -> regret.v1.BatchRequest
+	20, // 23: regret.v1.AdapterService.ReadState:input_type -> regret.v1.ReadStateRequest
+	22, // 24: regret.v1.AdapterService.Cleanup:input_type -> regret.v1.CleanupRequest
+	19, // 25: regret.v1.AdapterService.ExecuteBatch:output_type -> regret.v1.BatchResponse
+	21, // 26: regret.v1.AdapterService.ReadState:output_type -> regret.v1.ReadStateResponse
+	23, // 27: regret.v1.AdapterService.Cleanup:output_type -> regret.v1.CleanupResponse
+	25, // [25:28] is the sub-list for method output_type
+	22, // [22:25] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_regret_proto_init() }
@@ -571,14 +1660,32 @@ func file_regret_proto_init() {
 	if File_regret_proto != nil {
 		return
 	}
-	file_regret_proto_msgTypes[6].OneofWrappers = []any{}
+	file_regret_proto_msgTypes[1].OneofWrappers = []any{}
+	file_regret_proto_msgTypes[16].OneofWrappers = []any{
+		(*Operation_Put)(nil),
+		(*Operation_Get)(nil),
+		(*Operation_Delete)(nil),
+		(*Operation_DeleteRange)(nil),
+		(*Operation_Scan)(nil),
+		(*Operation_List)(nil),
+		(*Operation_Cas)(nil),
+	}
+	file_regret_proto_msgTypes[17].OneofWrappers = []any{
+		(*OpResult_Put)(nil),
+		(*OpResult_Get)(nil),
+		(*OpResult_Delete)(nil),
+		(*OpResult_DeleteRange)(nil),
+		(*OpResult_Scan)(nil),
+		(*OpResult_List)(nil),
+		(*OpResult_Cas)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_regret_proto_rawDesc), len(file_regret_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

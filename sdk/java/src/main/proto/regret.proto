@@ -1,39 +1,138 @@
 syntax = "proto3";
 package regret.v1;
 
+option java_package = "regret.v1";
+option java_outer_classname = "Regret";
+option go_package = "github.com/regret-io/regret/pilot-go/proto";
+
 service AdapterService {
-    // Execute a batch of operations. Ops within a batch execute concurrently.
     rpc ExecuteBatch(BatchRequest) returns (BatchResponse);
-
-    // Read all records under a key prefix (checkpoint verification).
     rpc ReadState(ReadStateRequest) returns (ReadStateResponse);
-
-    // Delete all data under a key prefix (hypothesis deletion).
     rpc Cleanup(CleanupRequest) returns (CleanupResponse);
 }
 
-message BatchRequest {
-    string            batch_id = 1;
-    repeated Operation ops     = 2;
+// --- Core types ---
+
+message RecordMeta {
+    uint64 version_id = 1;
 }
+
+message Record {
+    string key = 1;
+    RecordMeta meta = 2;
+    optional bytes payload = 3;
+}
+
+// --- Operations ---
+
+message PutOp {
+    string key = 1;
+    bytes value = 2;
+    bool ephemeral = 3;
+    string index_name = 4;
+    string index_key = 5;
+    bool sequence = 6;
+    string prefix = 7;
+    int64 delta = 8;
+}
+
+message PutResult {
+    Record record = 1;
+}
+
+message GetOp {
+    string key = 1;
+    string comparison = 2; // equal, floor, ceiling, lower, higher
+}
+
+message GetResult {
+    Record record = 1;
+}
+
+message DeleteOp {
+    string key = 1;
+}
+
+message DeleteResult {}
+
+message DeleteRangeOp {
+    string start = 1;
+    string end = 2;
+}
+
+message DeleteRangeResult {}
+
+message ScanOp {
+    string start = 1;
+    string end = 2;
+    string index_name = 3;
+}
+
+message ScanResult {
+    repeated Record records = 1;
+}
+
+message ListOp {
+    string start = 1;
+    string end = 2;
+    string index_name = 3;
+}
+
+message ListResult {
+    repeated string keys = 1;
+}
+
+message CasOp {
+    string key = 1;
+    uint64 expected_version_id = 2;
+    bytes new_value = 3;
+}
+
+message CasResult {
+    Record record = 1;
+}
+
+// --- Batch ---
 
 message Operation {
-    string op_id   = 1;
-    string op_type = 2;
-    bytes  payload = 3;
-}
-
-message BatchResponse {
-    string           batch_id = 1;
-    repeated OpResult results = 2;
+    string op_id = 1;
+    oneof op {
+        PutOp put = 2;
+        GetOp get = 3;
+        DeleteOp delete = 4;
+        DeleteRangeOp delete_range = 5;
+        ScanOp scan = 6;
+        ListOp list = 7;
+        CasOp cas = 8;
+    }
 }
 
 message OpResult {
-    string op_id   = 1;
-    string status  = 2;
-    bytes  payload = 3;
-    string message = 4;
+    string op_id = 1;
+    string status = 2;
+    string message = 3;
+    oneof result {
+        PutResult put = 4;
+        GetResult get = 5;
+        DeleteResult delete = 6;
+        DeleteRangeResult delete_range = 7;
+        ScanResult scan = 8;
+        ListResult list = 9;
+        CasResult cas = 10;
+    }
 }
+
+message BatchRequest {
+    string batch_id = 1;
+    repeated Operation ops = 2;
+}
+
+message BatchResponse {
+    string batch_id = 1;
+    repeated OpResult results = 2;
+}
+
+// --- State ---
 
 message ReadStateRequest {
     string key_prefix = 1;
@@ -41,12 +140,6 @@ message ReadStateRequest {
 
 message ReadStateResponse {
     repeated Record records = 1;
-}
-
-message Record {
-    string              key      = 1;
-    optional bytes      value    = 2;
-    map<string, string> metadata = 3;
 }
 
 message CleanupRequest {

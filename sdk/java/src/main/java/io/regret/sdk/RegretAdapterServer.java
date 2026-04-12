@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import regret.v1.AdapterServiceGrpc;
 import regret.v1.Regret;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -51,20 +52,15 @@ public class RegretAdapterServer {
                 long batchStartNanos = System.nanoTime();
                 LOG.info("executeBatch batchId={} ops={}", request.getBatchId(), request.getOpsCount());
 
-                // Execute all ops concurrently, recording per-op latency + status.
                 List<CompletableFuture<OpResult>> futures = new ArrayList<>();
                 for (Regret.Operation protoOp : request.getOpsList()) {
-                    final Operation op = new Operation(
-                            protoOp.getOpId(),
-                            OpType.fromString(protoOp.getOpType()),
-                            protoOp.getPayload().toByteArray());
-                    final String opTypeStr = protoOp.getOpType();
+                    final Operation op = fromProto(protoOp);
+                    final String opTypeStr = op.opType().value();
                     futures.add(CompletableFuture.supplyAsync(() -> {
                         long startNanos = System.nanoTime();
-                        OpResult result;
                         String status = "error";
                         try {
-                            result = adapter.executeOp(op);
+                            OpResult result = adapter.executeOp(op);
                             status = result != null && result.status() != null ? result.status() : "unknown";
                             return result;
                         } finally {
@@ -74,20 +70,12 @@ public class RegretAdapterServer {
                     }));
                 }
 
-                // Wait for all
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
-                // Build response
                 Regret.BatchResponse.Builder rb = Regret.BatchResponse.newBuilder()
                         .setBatchId(request.getBatchId());
                 for (var f : futures) {
-                    OpResult result = f.get();
-                    Regret.OpResult.Builder b = Regret.OpResult.newBuilder()
-                            .setOpId(result.opId())
-                            .setStatus(result.status());
-                    if (result.payload() != null) b.setPayload(ByteString.copyFrom(result.payload()));
-                    if (result.message() != null) b.setMessage(result.message());
-                    rb.addResults(b.build());
+                    rb.addResults(toProto(f.get()));
                 }
 
                 double batchElapsedSec = (System.nanoTime() - batchStartNanos) / 1_000_000_000.0;
@@ -114,8 +102,11 @@ public class RegretAdapterServer {
                 Regret.ReadStateResponse.Builder b = Regret.ReadStateResponse.newBuilder();
                 for (Record r : records) {
                     Regret.Record.Builder rb = Regret.Record.newBuilder().setKey(r.getKey());
-                    if (r.getValue() != null) rb.setValue(ByteString.copyFrom(r.getValue()));
-                    if (r.getMetadata() != null) rb.putAllMetadata(r.getMetadata());
+                    if (r.getValue() != null) rb.setPayload(ByteString.copyFrom(r.getValue()));
+                    if (r.getMetadata() != null && r.getMetadata().containsKey("version_id")) {
+                        long vid = Long.parseLong(r.getMetadata().get("version_id"));
+                        rb.setMeta(Regret.RecordMeta.newBuilder().setVersionId(vid));
+                    }
                     b.addRecords(rb.build());
                 }
                 double elapsed = (System.nanoTime() - startNanos) / 1_000_000_000.0;
@@ -145,6 +136,125 @@ public class RegretAdapterServer {
                 }
                 responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
             }
+        }
+
+        // --- Proto <-> SDK conversion ---
+
+        private static Operation fromProto(Regret.Operation proto) {
+            String opId = proto.getOpId();
+            if (proto.hasPut()) {
+                var p = proto.getPut();
+                if (p.getSequence()) {
+                    return new Operation(opId, OpType.SEQUENCE_PUT,
+                            new io.regret.sdk.payload.SequencePutPayload(p.getPrefix(),
+                                    p.getValue().toString(StandardCharsets.UTF_8), p.getDelta()).toBytes());
+                }
+                if (p.getEphemeral()) {
+                    return new Operation(opId, OpType.EPHEMERAL_PUT,
+                            new io.regret.sdk.payload.EphemeralPutPayload(p.getKey(),
+                                    p.getValue().toString(StandardCharsets.UTF_8)).toBytes());
+                }
+                if (!p.getIndexName().isEmpty()) {
+                    return new Operation(opId, OpType.INDEXED_PUT,
+                            new io.regret.sdk.payload.IndexedPutPayload(p.getKey(),
+                                    p.getValue().toString(StandardCharsets.UTF_8),
+                                    p.getIndexName(), p.getIndexKey()).toBytes());
+                }
+                return new Operation(opId, OpType.PUT,
+                        new io.regret.sdk.payload.PutPayload(p.getKey(),
+                                p.getValue().toString(StandardCharsets.UTF_8)).toBytes());
+            }
+            if (proto.hasGet()) {
+                var g = proto.getGet();
+                OpType type = switch (g.getComparison()) {
+                    case "floor" -> OpType.GET_FLOOR;
+                    case "ceiling" -> OpType.GET_CEILING;
+                    case "lower" -> OpType.GET_LOWER;
+                    case "higher" -> OpType.GET_HIGHER;
+                    default -> OpType.GET;
+                };
+                return new Operation(opId, type,
+                        new io.regret.sdk.payload.GetPayload(g.getKey()).toBytes());
+            }
+            if (proto.hasDelete()) {
+                return new Operation(opId, OpType.DELETE,
+                        new io.regret.sdk.payload.DeletePayload(proto.getDelete().getKey()).toBytes());
+            }
+            if (proto.hasDeleteRange()) {
+                var dr = proto.getDeleteRange();
+                return new Operation(opId, OpType.DELETE_RANGE,
+                        new io.regret.sdk.payload.DeleteRangePayload(dr.getStart(), dr.getEnd()).toBytes());
+            }
+            if (proto.hasScan()) {
+                var s = proto.getScan();
+                if (!s.getIndexName().isEmpty()) {
+                    return new Operation(opId, OpType.INDEXED_RANGE_SCAN,
+                            new io.regret.sdk.payload.IndexedRangeScanPayload(s.getIndexName(),
+                                    s.getStart(), s.getEnd()).toBytes());
+                }
+                return new Operation(opId, OpType.RANGE_SCAN,
+                        new io.regret.sdk.payload.RangeScanPayload(s.getStart(), s.getEnd()).toBytes());
+            }
+            if (proto.hasList()) {
+                var l = proto.getList();
+                if (!l.getIndexName().isEmpty()) {
+                    return new Operation(opId, OpType.INDEXED_LIST,
+                            new io.regret.sdk.payload.IndexedListPayload(l.getIndexName(),
+                                    l.getStart(), l.getEnd()).toBytes());
+                }
+                return new Operation(opId, OpType.LIST,
+                        new io.regret.sdk.payload.ListPayload(l.getStart(), l.getEnd()).toBytes());
+            }
+            if (proto.hasCas()) {
+                var c = proto.getCas();
+                return new Operation(opId, OpType.CAS,
+                        new io.regret.sdk.payload.CasPayload(c.getKey(), c.getExpectedVersionId(),
+                                c.getNewValue().toString(StandardCharsets.UTF_8)).toBytes());
+            }
+            throw new IllegalArgumentException("Unknown operation type in proto: " + proto);
+        }
+
+        private static Regret.OpResult toProto(OpResult result) {
+            Regret.OpResult.Builder b = Regret.OpResult.newBuilder()
+                    .setOpId(result.opId())
+                    .setStatus(result.status());
+            if (result.message() != null) b.setMessage(result.message());
+
+            if (result.data() == null) return b.build();
+
+            switch (result.data()) {
+                case OpResult.PutData put -> b.setPut(Regret.PutResult.newBuilder()
+                        .setRecord(Regret.Record.newBuilder()
+                                .setKey(put.key() != null ? put.key() : "")
+                                .setMeta(Regret.RecordMeta.newBuilder().setVersionId(put.versionId()))));
+                case OpResult.GetData get -> {
+                    var rec = Regret.Record.newBuilder()
+                            .setKey(get.key() != null ? get.key() : "")
+                            .setMeta(Regret.RecordMeta.newBuilder().setVersionId(get.versionId()));
+                    if (get.value() != null) {
+                        rec.setPayload(ByteString.copyFrom(get.value(), StandardCharsets.UTF_8));
+                    }
+                    b.setGet(Regret.GetResult.newBuilder().setRecord(rec));
+                }
+                case OpResult.DeleteData ignored -> b.setDelete(Regret.DeleteResult.newBuilder());
+                case OpResult.DeleteRangeData ignored -> b.setDeleteRange(Regret.DeleteRangeResult.newBuilder());
+                case OpResult.ScanData scan -> {
+                    var sr = Regret.ScanResult.newBuilder();
+                    for (var r : scan.records()) {
+                        sr.addRecords(Regret.Record.newBuilder()
+                                .setKey(r.key())
+                                .setMeta(Regret.RecordMeta.newBuilder().setVersionId(r.versionId()))
+                                .setPayload(ByteString.copyFrom(r.value(), StandardCharsets.UTF_8)));
+                    }
+                    b.setScan(sr);
+                }
+                case OpResult.ListData list -> b.setList(Regret.ListResult.newBuilder().addAllKeys(list.keys()));
+                case OpResult.CasData cas -> b.setCas(Regret.CasResult.newBuilder()
+                        .setRecord(Regret.Record.newBuilder()
+                                .setKey(cas.key() != null ? cas.key() : "")
+                                .setMeta(Regret.RecordMeta.newBuilder().setVersionId(cas.versionId()))));
+            }
+            return b.build();
         }
     }
 }

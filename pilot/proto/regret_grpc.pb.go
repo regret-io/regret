@@ -28,11 +28,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AdapterServiceClient interface {
-	// Execute a batch of operations. Ops within a batch execute concurrently.
 	ExecuteBatch(ctx context.Context, in *BatchRequest, opts ...grpc.CallOption) (*BatchResponse, error)
-	// Read all records under a key prefix (checkpoint verification).
 	ReadState(ctx context.Context, in *ReadStateRequest, opts ...grpc.CallOption) (*ReadStateResponse, error)
-	// Delete all data under a key prefix (hypothesis deletion).
 	Cleanup(ctx context.Context, in *CleanupRequest, opts ...grpc.CallOption) (*CleanupResponse, error)
 }
 
@@ -78,11 +75,8 @@ func (c *adapterServiceClient) Cleanup(ctx context.Context, in *CleanupRequest, 
 // All implementations must embed UnimplementedAdapterServiceServer
 // for forward compatibility.
 type AdapterServiceServer interface {
-	// Execute a batch of operations. Ops within a batch execute concurrently.
 	ExecuteBatch(context.Context, *BatchRequest) (*BatchResponse, error)
-	// Read all records under a key prefix (checkpoint verification).
 	ReadState(context.Context, *ReadStateRequest) (*ReadStateResponse, error)
-	// Delete all data under a key prefix (hypothesis deletion).
 	Cleanup(context.Context, *CleanupRequest) (*CleanupResponse, error)
 	mustEmbedUnimplementedAdapterServiceServer()
 }
