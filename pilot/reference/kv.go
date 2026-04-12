@@ -32,18 +32,6 @@ func (r *BasicKvReference) runPrefix() string {
 	return fmt.Sprintf("/ref/%s/%s/", r.hypothesisID, r.runID)
 }
 
-// shouldIgnoreField checks if a field should be ignored based on tolerance.
-func shouldIgnoreField(field string, tolerance *Tolerance) bool {
-	if tolerance == nil {
-		return false
-	}
-	for _, s := range tolerance.Structural {
-		if s.Field == field && s.Ignore {
-			return true
-		}
-	}
-	return false
-}
 
 // applyWrite applies a successful write to the reference state.
 // Uses the adapter's returned version_id and key when available.
@@ -119,10 +107,8 @@ func (r *BasicKvReference) resolveVersion(key string, adapterVersion *uint64) ui
 func (r *BasicKvReference) verifyRead(
 	op *Operation,
 	result *AdapterOpResult,
-	tolerance *Tolerance,
 ) *SafetyViolation {
-	ignoreVersion := shouldIgnoreField("version_id", tolerance)
-
+	ignoreVersion := false
 	switch op.Kind.Type {
 	case OpKindGet:
 		return r.verifyGet(op, op.Kind.Key, op.Kind.Comparison, result, ignoreVersion)
@@ -628,7 +614,6 @@ func (r *BasicKvReference) KeyPrefix() string {
 func (r *BasicKvReference) ProcessResponse(
 	ops []Operation,
 	response *AdapterBatchResponse,
-	tolerance *Tolerance,
 ) []SafetyViolation {
 	var failures []SafetyViolation
 
@@ -679,7 +664,7 @@ func (r *BasicKvReference) ProcessResponse(
 			continue
 		}
 		if isReadOp(op.Kind.Type) {
-			if violation := r.verifyRead(op, result, tolerance); violation != nil {
+			if violation := r.verifyRead(op, result); violation != nil {
 				failures = append(failures, *violation)
 			}
 		}
@@ -783,9 +768,8 @@ func (r *BasicKvReference) ProcessResponse(
 
 func (r *BasicKvReference) VerifyCheckpoint(
 	actual map[string]*RecordState,
-	tolerance *Tolerance,
 ) []CheckpointFailure {
-	ignoreVersion := shouldIgnoreField("version_id", tolerance)
+	ignoreVersion := false
 	prefix := r.runPrefix()
 	expectedAll, _ := r.store.db.refScanAll(prefix)
 	if expectedAll == nil {
@@ -794,62 +778,47 @@ func (r *BasicKvReference) VerifyCheckpoint(
 
 	var failures []CheckpointFailure
 
-	// Build expected maps
-	expectedEntries := make(map[string]*refEntry, len(expectedAll))
-	expectedMap := make(map[string]*RecordState, len(expectedAll))
-	for i := range expectedAll {
-		ke := &expectedAll[i]
-		expectedEntries[ke.key] = &ke.entry
-		val := ke.entry.Value
-		expectedMap[ke.key] = &RecordState{Value: &val, VersionID: ke.entry.Version}
-	}
-
-	// Check all expected keys exist in actual
-	for key, expState := range expectedMap {
-		actState := actual[key]
-		isEphemeral := false
-		if e, ok := expectedEntries[key]; ok {
-			isEphemeral = e.Ephemeral
-		}
-
-		if actState != nil {
-			valueMismatch := !strPtrEqual(expState.Value, actState.Value)
-			versionMismatch := !ignoreVersion && expState.VersionID != actState.VersionID
-			if valueMismatch || versionMismatch {
-				failures = append(failures, CheckpointFailure{
-					Key:      key,
-					Expected: expState,
-					Actual:   actState,
-				})
-			}
-		} else {
-			// Ephemeral keys may be gone after session restart -- not a failure
-			if !isEphemeral {
-				failures = append(failures, CheckpointFailure{
-					Key:      key,
-					Expected: expState,
-					Actual:   nil,
-				})
-			} else {
-				// Clean up reference -- key is confirmed gone
-				_ = r.store.db.refDelete(key)
-			}
-		}
-	}
-
-	// Check for extra keys in actual that aren't in expected
-	for key, actState := range actual {
-		if !strings.HasPrefix(key, prefix) {
+	// Check expected keys exist in actual
+	for _, ke := range expectedAll {
+		if ke.entry.Ephemeral {
 			continue
 		}
-		if _, exists := expectedMap[key]; !exists {
-			if actState != nil {
-				failures = append(failures, CheckpointFailure{
-					Key:      key,
-					Expected: nil,
-					Actual:   actState,
-				})
-			}
+		actualState, exists := actual[ke.key]
+		if !exists || actualState == nil {
+			failures = append(failures, CheckpointFailure{
+				Key:      ke.key,
+				Expected: &RecordState{Value: &ke.entry.Value, VersionID: ke.entry.Version},
+				Actual:   nil,
+			})
+			continue
+		}
+		if actualState.Value != nil && *actualState.Value != ke.entry.Value {
+			failures = append(failures, CheckpointFailure{
+				Key:      ke.key,
+				Expected: &RecordState{Value: &ke.entry.Value, VersionID: ke.entry.Version},
+				Actual:   actualState,
+			})
+		}
+		if !ignoreVersion && actualState.VersionID != ke.entry.Version {
+			failures = append(failures, CheckpointFailure{
+				Key:      ke.key,
+				Expected: &RecordState{Value: &ke.entry.Value, VersionID: ke.entry.Version},
+				Actual:   actualState,
+			})
+		}
+	}
+
+	// Check actual keys not in expected (ignoring ephemeral)
+	expectedMap := make(map[string]bool, len(expectedAll))
+	for _, ke := range expectedAll {
+		expectedMap[ke.key] = true
+	}
+	for key, state := range actual {
+		if !expectedMap[key] && state != nil {
+			failures = append(failures, CheckpointFailure{
+				Key:    key,
+				Actual: state,
+			})
 		}
 	}
 

@@ -45,26 +45,6 @@ type CheckpointFailure struct {
 	Actual   *RecordState `json:"actual,omitempty"`
 }
 
-// Tolerance configures verification tolerance.
-type Tolerance struct {
-	Ordering   string                `json:"ordering"`
-	Duplicates string                `json:"duplicates"`
-	Structural []StructuralTolerance `json:"structural"`
-}
-
-// DefaultTolerance returns a Tolerance with default values.
-func DefaultTolerance() Tolerance {
-	return Tolerance{
-		Ordering:   "strict",
-		Duplicates: "deny",
-	}
-}
-
-// StructuralTolerance configures tolerance for a specific field.
-type StructuralTolerance struct {
-	Field  string `json:"field"`
-	Ignore bool   `json:"ignore"`
-}
 
 // AdapterBatchResponse is the adapter's response for a batch of operations.
 type AdapterBatchResponse struct {
@@ -187,10 +167,10 @@ type ReferenceModel interface {
 	// Write succeeded -> update state in PebbleDB.
 	// Read succeeded -> verify value against state in PebbleDB.
 	// Returns list of read verification failures.
-	ProcessResponse(ops []Operation, response *AdapterBatchResponse, tolerance *Tolerance) []SafetyViolation
+	ProcessResponse(ops []Operation, response *AdapterBatchResponse) []SafetyViolation
 
 	// VerifyCheckpoint verifies adapter state snapshot against reference state.
-	VerifyCheckpoint(actual map[string]*RecordState, tolerance *Tolerance) []CheckpointFailure
+	VerifyCheckpoint(actual map[string]*RecordState) []CheckpointFailure
 
 	// SnapshotAll returns all reference state as a map.
 	SnapshotAll() map[string]*RecordState

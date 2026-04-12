@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -37,16 +36,9 @@ func NewManagerRegistry(shared SharedServices) *ManagerRegistry {
 }
 
 // CreateFromHypothesis creates and registers a new manager for the given hypothesis.
-func (r *ManagerRegistry) CreateFromHypothesis(id, generatorName string, tolerance *string) {
+func (r *ManagerRegistry) CreateFromHypothesis(id, generatorName string, _ *string) {
 	ref := reference.CreateReference(generatorName, r.shared.RefStore, id)
-	var tol *reference.Tolerance
-	if tolerance != nil {
-		var t reference.Tolerance
-		if err := jsonUnmarshalString(*tolerance, &t); err == nil {
-			tol = &t
-		}
-	}
-	mgr := NewHypothesisManager(id, generatorName, tol, ref, r.shared)
+	mgr := NewHypothesisManager(id, generatorName, ref, r.shared)
 	r.mu.Lock()
 	r.managers[id] = mgr
 	r.mu.Unlock()
@@ -84,7 +76,6 @@ type HypothesisManager struct {
 	mu            sync.Mutex
 	HypothesisID  string
 	GeneratorName string
-	tolerance     *reference.Tolerance
 	reference     reference.ReferenceModel
 	activeRun     *activeRun
 	resumeRunID   *string
@@ -92,11 +83,10 @@ type HypothesisManager struct {
 }
 
 // NewHypothesisManager creates a new HypothesisManager.
-func NewHypothesisManager(id, generatorName string, tolerance *reference.Tolerance, ref reference.ReferenceModel, shared SharedServices) *HypothesisManager {
+func NewHypothesisManager(id, generatorName string, ref reference.ReferenceModel, shared SharedServices) *HypothesisManager {
 	return &HypothesisManager{
 		HypothesisID:  id,
 		GeneratorName: generatorName,
-		tolerance:     tolerance,
 		reference:     ref,
 		shared:        shared,
 	}
@@ -183,7 +173,6 @@ func (m *HypothesisManager) StartRun(
 		HypothesisID:   m.HypothesisID,
 		RunID:          runID,
 		Config:         config,
-		Tolerance:      m.tolerance,
 		GenerateParams: genParams,
 		Reference:      m.reference,
 		Ctx:            runCtx,
@@ -309,10 +298,6 @@ func (m *HypothesisManager) Progress() *ProgressInfo {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-func jsonUnmarshalString(s string, v interface{}) error {
-	return json.Unmarshal([]byte(s), v)
-}
 
 func timeNowUnixMilli() int64 {
 	return time.Now().UnixMilli()

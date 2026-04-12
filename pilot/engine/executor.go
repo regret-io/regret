@@ -68,7 +68,6 @@ type Executor struct {
 	HypothesisID  string
 	RunID         string
 	Config        ExecutionConfig
-	Tolerance     *reference.Tolerance
 	GenerateParams *generator.GenerateParams
 	Reference     reference.ReferenceModel
 	Ctx           context.Context
@@ -269,7 +268,7 @@ func (e *Executor) runInner() StopReason {
 
 				durationMs := uint64(time.Since(start).Milliseconds())
 				response := &reference.AdapterBatchResponse{BatchID: batchID, Results: results}
-				failures = e.Reference.ProcessResponse(batch, response, e.Tolerance)
+				failures = e.Reference.ProcessResponse(batch, response)
 
 				// Build op records
 				failedOps := make(map[string]bool)
@@ -317,7 +316,7 @@ func (e *Executor) runInner() StopReason {
 				mockResults := e.buildMockResults(batch)
 				durationMs := uint64(time.Since(start).Milliseconds())
 				response := &reference.AdapterBatchResponse{BatchID: batchID, Results: mockResults}
-				e.Reference.ProcessResponse(batch, response, e.Tolerance)
+				e.Reference.ProcessResponse(batch, response)
 				opRecords := make([]OpRecord, 0, len(batch))
 				for i, op := range batch {
 					if i >= len(response.Results) {
@@ -492,7 +491,7 @@ func (e *Executor) runCheckpoint(num int) StopReason {
 		actual = e.Reference.SnapshotAll()
 	}
 
-	failures := e.Reference.VerifyCheckpoint(actual, e.Tolerance)
+	failures := e.Reference.VerifyCheckpoint(actual)
 	durationMs := uint64(time.Since(start).Milliseconds())
 	expect := e.Reference.SnapshotAll()
 
