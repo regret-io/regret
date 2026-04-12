@@ -66,6 +66,8 @@ public final class AdapterMetrics implements AutoCloseable {
     private final LongHistogram readStateRecords;
     private final LongCounter cleanupTotal;
     private final LongCounter grpcErrorsTotal;
+    private final LongCounter retryTotal;
+    private final LongCounter permanentErrorTotal;
 
     private AdapterMetrics(SdkMeterProvider meterProvider, PrometheusHttpServer prometheusServer) {
         this.meterProvider = meterProvider;
@@ -108,6 +110,12 @@ public final class AdapterMetrics implements AutoCloseable {
                 .build();
         this.grpcErrorsTotal = meter.counterBuilder("regret_adapter_grpc_errors_total")
                 .setDescription("RPCs that failed with an exception")
+                .build();
+        this.retryTotal = meter.counterBuilder("regret_adapter_retry_total")
+                .setDescription("Transient error retries per op type")
+                .build();
+        this.permanentErrorTotal = meter.counterBuilder("regret_adapter_permanent_error_total")
+                .setDescription("Permanent (non-retryable) errors per op type")
                 .build();
     }
 
@@ -174,6 +182,14 @@ public final class AdapterMetrics implements AutoCloseable {
 
     public void recordGrpcError(String method) {
         grpcErrorsTotal.add(1, Attributes.of(METHOD, nullSafe(method)));
+    }
+
+    public void recordRetry(String opType) {
+        retryTotal.add(1, Attributes.of(OP_TYPE, nullSafe(opType)));
+    }
+
+    public void recordPermanentError(String opType) {
+        permanentErrorTotal.add(1, Attributes.of(OP_TYPE, nullSafe(opType)));
     }
 
     private static String nullSafe(String s) {

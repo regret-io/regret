@@ -216,22 +216,27 @@ func (g *BasicKvGenerator) genGetWithComparison(id, comparison string) OriginOp 
 }
 
 func (g *BasicKvGenerator) genRangeScan(id string) OriginOp {
+	const maxRange = 100
 	ks := &g.params.KeySpace
-	a := g.rng.Intn(ks.Count)
-	b := g.rng.Intn(ks.Count)
-	lo := a
-	hi := b
-	if a > b {
-		lo = b
-		hi = a
+	lo := g.rng.Intn(ks.Count)
+	span := g.rng.Intn(min(maxRange, ks.Count)) + 1
+	hi := lo + span
+	if hi > ks.Count {
+		hi = ks.Count
 	}
-	hi++ // exclusive end
 	return Scan(id, g.formatKey(lo), g.formatKey(hi))
 }
 
 func (g *BasicKvGenerator) genList(id string) OriginOp {
+	const maxRange = 100
 	ks := &g.params.KeySpace
-	return List(id, g.formatKey(0), fmt.Sprintf("%s~", ks.Prefix))
+	lo := g.rng.Intn(ks.Count)
+	span := g.rng.Intn(min(maxRange, ks.Count)) + 1
+	hi := lo + span
+	if hi > ks.Count {
+		hi = ks.Count
+	}
+	return List(id, g.formatKey(lo), g.formatKey(hi))
 }
 
 func (g *BasicKvGenerator) genIndexedGet(id string) OriginOp {
@@ -244,30 +249,26 @@ func (g *BasicKvGenerator) genIndexedGet(id string) OriginOp {
 }
 
 func (g *BasicKvGenerator) genIndexedList(id string) OriginOp {
+	const maxRange = 100
 	idx := &g.params.Index
-	a := g.rng.Intn(idx.KeyCount)
-	b := g.rng.Intn(idx.KeyCount)
-	lo := a
-	hi := b
-	if a > b {
-		lo = b
-		hi = a
+	lo := g.rng.Intn(idx.KeyCount)
+	span := g.rng.Intn(min(maxRange, idx.KeyCount)) + 1
+	hi := lo + span
+	if hi > idx.KeyCount {
+		hi = idx.KeyCount
 	}
-	hi++
 	return IndexedList(id, idx.Name, fmt.Sprintf("idx-%04d", lo), fmt.Sprintf("idx-%04d", hi))
 }
 
 func (g *BasicKvGenerator) genIndexedRangeScan(id string) OriginOp {
+	const maxRange = 100
 	idx := &g.params.Index
-	a := g.rng.Intn(idx.KeyCount)
-	b := g.rng.Intn(idx.KeyCount)
-	lo := a
-	hi := b
-	if a > b {
-		lo = b
-		hi = a
+	lo := g.rng.Intn(idx.KeyCount)
+	span := g.rng.Intn(min(maxRange, idx.KeyCount)) + 1
+	hi := lo + span
+	if hi > idx.KeyCount {
+		hi = idx.KeyCount
 	}
-	hi++
 	return IndexedRangeScan(id, idx.Name, fmt.Sprintf("idx-%04d", lo), fmt.Sprintf("idx-%04d", hi))
 }
 

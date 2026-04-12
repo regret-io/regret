@@ -12,7 +12,6 @@ import regret.v1.Regret;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 public class RegretAdapterServer {
 
@@ -36,6 +35,9 @@ public class RegretAdapterServer {
         server.awaitTermination();
     }
 
+    private static final long INITIAL_BACKOFF_MS = 100;
+    private static final long MAX_BACKOFF_MS = 10_000;
+
     private static class AdapterServiceImpl extends AdapterServiceGrpc.AdapterServiceImplBase {
         private final Adapter adapter;
         private final AdapterMetrics metrics;
@@ -52,7 +54,6 @@ public class RegretAdapterServer {
                 long batchStartNanos = System.nanoTime();
                 LOG.info("executeBatch batchId={} ops={}", request.getBatchId(), request.getOpsCount());
 
-                // Execute ops sequentially to ensure write visibility ordering
                 List<OpResult> results = new ArrayList<>();
                 for (Regret.Operation protoOp : request.getOpsList()) {
                     final Operation op = fromProto(protoOp);
@@ -60,9 +61,12 @@ public class RegretAdapterServer {
                     long startNanos = System.nanoTime();
                     String status = "error";
                     try {
-                        OpResult result = adapter.executeOp(op);
+                        OpResult result = executeWithRetry(op, opTypeStr);
                         status = result != null && result.status() != null ? result.status() : "unknown";
                         results.add(result);
+                    } catch (AdapterException e) {
+                        if (metrics != null) metrics.recordPermanentError(opTypeStr);
+                        results.add(OpResult.error(op.opId(), e.getMessage()));
                     } catch (Exception e) {
                         results.add(OpResult.error(op.opId(), e.getMessage()));
                     } finally {
@@ -88,6 +92,36 @@ public class RegretAdapterServer {
                 LOG.error("executeBatch failed", e);
                 if (metrics != null) metrics.recordGrpcError("executeBatch");
                 responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(e.getMessage()).asException());
+            }
+        }
+
+        private OpResult executeWithRetry(Operation op, String opTypeStr) throws AdapterException {
+            long backoffMs = INITIAL_BACKOFF_MS;
+            int attempt = 0;
+            while (true) {
+                attempt++;
+                try {
+                    return adapter.executeOp(op);
+                } catch (AdapterException e) {
+                    if (!e.isTransient()) {
+                        throw e;
+                    }
+                    if (metrics != null) metrics.recordRetry(opTypeStr);
+                    LOG.warn("op {} transient error (attempt {}), retrying in {}ms: {}",
+                            op.opId(), attempt, backoffMs, e.getMessage());
+                } catch (Exception e) {
+                    if (metrics != null) metrics.recordRetry(opTypeStr);
+                    LOG.warn("op {} error (attempt {}), retrying in {}ms: {}",
+                            op.opId(), attempt, backoffMs, e.getMessage());
+                }
+                sleep(backoffMs);
+                backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+            }
+        }
+
+        private static void sleep(long ms) {
+            try { Thread.sleep(ms); } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
             }
         }
 

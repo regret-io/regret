@@ -9,9 +9,13 @@ public interface Adapter {
 
     /**
      * Execute a single operation against the target system.
-     * Called concurrently for ops between fences.
+     *
+     * <p>Throw {@link AdapterException#transient_(String, Throwable)} for retryable errors
+     * (connection lost, timeout) — the SDK will retry with backoff.
+     * Throw {@link AdapterException#permanent(String, Throwable)} for non-retryable errors.
+     * Any other exception is treated as transient.
      */
-    OpResult executeOp(Operation op);
+    OpResult executeOp(Operation op) throws AdapterException;
 
     /**
      * Read all records under the given key prefix.

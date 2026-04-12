@@ -261,7 +261,7 @@ func (h *hypothesisHandlers) StartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var adapterRecord *storageAdapterRecord
-	if hyp.Adapter != nil {
+	if hyp.Adapter != nil && *hyp.Adapter != "" {
 		a, err := h.state.Sqlite.GetAdapterByName(ctx, *hyp.Adapter)
 		if err != nil {
 			WriteError(w, NotFound(fmt.Sprintf("adapter '%s' not found", *hyp.Adapter)))
@@ -297,15 +297,15 @@ func (h *hypothesisHandlers) StartRun(w http.ResponseWriter, r *http.Request) {
 	}
 	genParams.KeySpace.Prefix = fmt.Sprintf("/%s/", id)
 
-	// Connect to adapter if specified
+	// Connect to adapter
 	var adapterClient engine.AdapterClient
-	if adapterRecord != nil {
-		addr := ""
-		if hyp.AdapterAddr != nil && *hyp.AdapterAddr != "" {
-			addr = *hyp.AdapterAddr
-		} else {
-			addr = fmt.Sprintf("http://adapter-%s:9090", adapterRecord.Name)
-		}
+	addr := ""
+	if hyp.AdapterAddr != nil && *hyp.AdapterAddr != "" {
+		addr = *hyp.AdapterAddr
+	} else if adapterRecord != nil {
+		addr = fmt.Sprintf("http://adapter-%s:9090", adapterRecord.Name)
+	}
+	if addr != "" {
 		client, err := adapter.Connect(addr)
 		if err == nil {
 			adapterClient = client

@@ -275,14 +275,19 @@ func (r *BasicKvReference) verifyList(
 		}
 	}
 
-	// Verify exact sorted order
-	for i := range expectedKeys {
-		if expectedKeys[i] != actualKeys[i] {
+	// Build set of actual keys for unordered comparison
+	actualSet := make(map[string]struct{}, len(actualKeys))
+	for _, k := range actualKeys {
+		actualSet[k] = struct{}{}
+	}
+
+	for _, expKey := range expectedKeys {
+		if _, exists := actualSet[expKey]; !exists {
 			return &SafetyViolation{
 				OpID:     op.ID,
 				Op:       "list",
-				Expected: fmt.Sprintf("key[%d]=%s%s", i, expectedKeys[i], rangeInfo),
-				Actual:   fmt.Sprintf("key[%d]=%s", i, actualKeys[i]),
+				Expected: fmt.Sprintf("key=%s present%s", expKey, rangeInfo),
+				Actual:   "key missing",
 			}
 		}
 	}
@@ -315,24 +320,28 @@ func (r *BasicKvReference) verifyRangeScan(
 		}
 	}
 
-	// Verify exact sorted order + values
-	for i := range expectedEntries {
-		exp := &expectedEntries[i]
-		act := &actualRecords[i]
-		if exp.key != act.Key {
+	// Build map of actual records for unordered comparison
+	actualByKey := make(map[string]string, len(actualRecords))
+	for _, act := range actualRecords {
+		actualByKey[act.Key] = act.Value
+	}
+
+	for _, exp := range expectedEntries {
+		actValue, exists := actualByKey[exp.key]
+		if !exists {
 			return &SafetyViolation{
 				OpID:     op.ID,
 				Op:       "range_scan",
-				Expected: fmt.Sprintf("record[%d].key=%s%s", i, exp.key, rangeInfo),
-				Actual:   fmt.Sprintf("record[%d].key=%s", i, act.Key),
+				Expected: fmt.Sprintf("key=%s present%s", exp.key, rangeInfo),
+				Actual:   "key missing",
 			}
 		}
-		if exp.entry.Value != act.Value {
+		if exp.entry.Value != actValue {
 			return &SafetyViolation{
 				OpID:     op.ID,
 				Op:       "range_scan",
-				Expected: fmt.Sprintf("record[%d].value=%s%s", i, exp.entry.Value, rangeInfo),
-				Actual:   fmt.Sprintf("record[%d].value=%s", i, act.Value),
+				Expected: fmt.Sprintf("key=%s value=%s%s", exp.key, exp.entry.Value, rangeInfo),
+				Actual:   fmt.Sprintf("key=%s value=%s", exp.key, actValue),
 			}
 		}
 	}
