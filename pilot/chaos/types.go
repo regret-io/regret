@@ -8,6 +8,21 @@ type ChaosScenario struct {
 	Actions   []ChaosAction `json:"actions"`
 }
 
+// ChaosWorkflow is a sequential, timed orchestration of chaos steps.
+type ChaosWorkflow struct {
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	Namespace string              `json:"namespace"`
+	Steps     []ChaosWorkflowStep `json:"steps"`
+}
+
+// ChaosWorkflowStep is either a timed wait or a chaos action with an optional wait.
+type ChaosWorkflowStep struct {
+	Name     string       `json:"name"`
+	Duration *string      `json:"duration,omitempty"`
+	Action   *ChaosAction `json:"action,omitempty"`
+}
+
 // ChaosAction defines a single chaos action.
 type ChaosAction struct {
 	// Action type: pod_kill, pod_restart, network_partition, network_delay,

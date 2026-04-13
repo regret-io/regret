@@ -32,6 +32,9 @@ type SqliteStore interface {
 	ChaosCreateInjection(ctx context.Context, id, scenarioID, scenarioName string) error
 	GetChaosInjection(ctx context.Context, id string) (*database.ChaosInjectionRecord, error)
 	UpdateChaosInjectionStatus(ctx context.Context, id, status string, errMsg *string) error
+	CreateChaosWorkflowRun(ctx context.Context, id, workflowID, workflowName string) error
+	GetChaosWorkflowRun(ctx context.Context, id string) (*database.ChaosWorkflowRunRecord, error)
+	UpdateChaosWorkflowRunStatus(ctx context.Context, id, status string, errMsg *string) error
 }
 
 // ManagerRegistry provides access to running hypothesis managers.
@@ -56,6 +59,7 @@ type chaosInjectionHandle struct {
 type ChaosRegistry struct {
 	mu         sync.RWMutex
 	injections map[string]*chaosInjectionHandle
+	workflows  map[string]*chaosInjectionHandle
 	files      EventLog
 	sqlite     SqliteStore
 	managers   ManagerRegistry
@@ -65,6 +69,7 @@ type ChaosRegistry struct {
 func NewChaosRegistry(files EventLog, sqlite SqliteStore, managers ManagerRegistry) *ChaosRegistry {
 	return &ChaosRegistry{
 		injections: make(map[string]*chaosInjectionHandle),
+		workflows:  make(map[string]*chaosInjectionHandle),
 		files:      files,
 		sqlite:     sqlite,
 		managers:   managers,
@@ -150,6 +155,73 @@ func (r *ChaosRegistry) ActiveIDs() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+func (r *ChaosRegistry) StartWorkflow(ctx context.Context, workflow ChaosWorkflow) (string, error) {
+	runID := uuid.New().String()
+	if err := r.sqlite.CreateChaosWorkflowRun(ctx, runID, workflow.ID, workflow.Name); err != nil {
+		return "", fmt.Errorf("create chaos workflow run record: %w", err)
+	}
+
+	event := NewWorkflowStartedEvent(workflow.ID, runID, workflow.Name)
+	r.emitChaosEvent(&event)
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		reason, err := runWorkflow(runCtx, runID, workflow, r.files, r.sqlite, r.managers)
+		if err != nil {
+			slog.Error("chaos workflow failed",
+				slog.String("workflow_run_id", runID),
+				slog.Any("error", err),
+			)
+			errMsg := err.Error()
+			r.sqlite.UpdateChaosWorkflowRunStatus(context.Background(), runID, "error", &errMsg) //nolint:errcheck
+			errEvent := NewChaosErrorEvent("", workflow.Name, "workflow", err.Error())
+			errEvent.WorkflowID = workflow.ID
+			errEvent.WorkflowRunID = runID
+			r.files.AppendChaosEvent(errEvent.ToJSON()) //nolint:errcheck
+			return
+		}
+		r.sqlite.UpdateChaosWorkflowRunStatus(context.Background(), runID, reason, nil) //nolint:errcheck
+		stopEvent := NewWorkflowStoppedEvent(workflow.ID, runID, workflow.Name, reason)
+		r.emitChaosEvent(&stopEvent)
+	}()
+
+	r.mu.Lock()
+	r.workflows[runID] = &chaosInjectionHandle{
+		scenarioName: workflow.Name,
+		cancel:       cancel,
+		done:         done,
+	}
+	r.mu.Unlock()
+	return runID, nil
+}
+
+func (r *ChaosRegistry) StopWorkflow(ctx context.Context, runID string) error {
+	r.mu.Lock()
+	handle, ok := r.workflows[runID]
+	if !ok {
+		r.mu.Unlock()
+		record, err := r.sqlite.GetChaosWorkflowRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("get workflow run: %w", err)
+		}
+		if record == nil {
+			return nil
+		}
+		return r.sqlite.UpdateChaosWorkflowRunStatus(ctx, runID, "stopped", nil)
+	}
+	delete(r.workflows, runID)
+	r.mu.Unlock()
+
+	handle.cancel()
+	<-handle.done
+	if err := r.sqlite.UpdateChaosWorkflowRunStatus(ctx, runID, "stopped", nil); err != nil {
+		return fmt.Errorf("update workflow run status: %w", err)
+	}
+	return nil
 }
 
 func (r *ChaosRegistry) emitChaosEvent(event *ChaosEvent) {

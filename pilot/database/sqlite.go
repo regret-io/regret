@@ -72,6 +72,24 @@ type ChaosInjectionRecord struct {
 	Error        *string `json:"error,omitempty"`
 }
 
+type ChaosWorkflowRecord struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Steps     string `json:"steps"`
+	CreatedAt string `json:"created_at"`
+}
+
+type ChaosWorkflowRunRecord struct {
+	ID           string  `json:"id"`
+	WorkflowID   string  `json:"workflow_id"`
+	WorkflowName string  `json:"workflow_name"`
+	Status       string  `json:"status"`
+	StartedAt    string  `json:"started_at"`
+	FinishedAt   *string `json:"finished_at,omitempty"`
+	Error        *string `json:"error,omitempty"`
+}
+
 type MetricSample struct {
 	HypothesisID string  `json:"hypothesis_id"`
 	RunID        string  `json:"run_id"`
@@ -667,6 +685,121 @@ func (s *SqliteStore) DeleteChaosInjection(ctx context.Context, id string) (bool
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil
+}
+
+func (s *SqliteStore) CreateChaosWorkflow(ctx context.Context, id, name, namespace, steps string) (*ChaosWorkflowRecord, error) {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO chaos_workflows (id, name, namespace, steps) VALUES (?, ?, ?, ?)`,
+		id, name, namespace, steps,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("insert chaos workflow: %w", err)
+	}
+	return s.GetChaosWorkflow(ctx, id)
+}
+
+func (s *SqliteStore) GetChaosWorkflow(ctx context.Context, id string) (*ChaosWorkflowRecord, error) {
+	var r ChaosWorkflowRecord
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, name, namespace, steps, created_at FROM chaos_workflows WHERE id = ?`, id).
+		Scan(&r.ID, &r.Name, &r.Namespace, &r.Steps, &r.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("chaos workflow not found")
+		}
+		return nil, fmt.Errorf("get chaos workflow: %w", err)
+	}
+	return &r, nil
+}
+
+func (s *SqliteStore) ListChaosWorkflows(ctx context.Context) ([]ChaosWorkflowRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, namespace, steps, created_at FROM chaos_workflows ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list chaos workflows: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ChaosWorkflowRecord
+	for rows.Next() {
+		var r ChaosWorkflowRecord
+		if err := rows.Scan(&r.ID, &r.Name, &r.Namespace, &r.Steps, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan chaos workflow: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SqliteStore) DeleteChaosWorkflow(ctx context.Context, id string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM chaos_workflows WHERE id = ?`, id)
+	if err != nil {
+		return false, fmt.Errorf("delete chaos workflow: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func (s *SqliteStore) CreateChaosWorkflowRun(ctx context.Context, id, workflowID, workflowName string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO chaos_workflow_runs (id, workflow_id, workflow_name) VALUES (?, ?, ?)`,
+		id, workflowID, workflowName,
+	)
+	if err != nil {
+		return fmt.Errorf("insert chaos workflow run: %w", err)
+	}
+	return nil
+}
+
+func (s *SqliteStore) GetChaosWorkflowRun(ctx context.Context, id string) (*ChaosWorkflowRunRecord, error) {
+	var r ChaosWorkflowRunRecord
+	var finishedAt, errMsg sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, workflow_id, workflow_name, status, started_at, finished_at, error FROM chaos_workflow_runs WHERE id = ?`, id).
+		Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Status, &r.StartedAt, &finishedAt, &errMsg)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("chaos workflow run not found")
+		}
+		return nil, fmt.Errorf("get chaos workflow run: %w", err)
+	}
+	r.FinishedAt = strPtr(finishedAt)
+	r.Error = strPtr(errMsg)
+	return &r, nil
+}
+
+func (s *SqliteStore) ListChaosWorkflowRuns(ctx context.Context) ([]ChaosWorkflowRunRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, workflow_id, workflow_name, status, started_at, finished_at, error FROM chaos_workflow_runs ORDER BY started_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list chaos workflow runs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ChaosWorkflowRunRecord
+	for rows.Next() {
+		var r ChaosWorkflowRunRecord
+		var finishedAt, errMsg sql.NullString
+		if err := rows.Scan(&r.ID, &r.WorkflowID, &r.WorkflowName, &r.Status, &r.StartedAt, &finishedAt, &errMsg); err != nil {
+			return nil, fmt.Errorf("scan chaos workflow run: %w", err)
+		}
+		r.FinishedAt = strPtr(finishedAt)
+		r.Error = strPtr(errMsg)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SqliteStore) UpdateChaosWorkflowRunStatus(ctx context.Context, id, status string, errorMsg *string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE chaos_workflow_runs SET status=?, finished_at=?, error=? WHERE id=?`,
+		status, now, nullStr(errorMsg), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update chaos workflow run status: %w", err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

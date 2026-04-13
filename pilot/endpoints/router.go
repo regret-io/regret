@@ -114,5 +114,15 @@ func NewRouter(state *AppState, authPassword *string) http.Handler {
 	// Chaos -- Events
 	r.Get("/api/chaos/events", c.ChaosEvents)
 
+	// Chaos -- Workflows
+	r.Post("/api/chaos/workflows", c.CreateWorkflow)
+	r.Get("/api/chaos/workflows", c.ListWorkflows)
+	r.Get("/api/chaos/workflows/{id}", c.GetWorkflow)
+	r.Delete("/api/chaos/workflows/{id}", c.DeleteWorkflow)
+	r.Post("/api/chaos/workflows/{id}/run", c.StartWorkflow)
+	r.Get("/api/chaos/workflow-runs", c.ListWorkflowRuns)
+	r.Get("/api/chaos/workflow-runs/{id}", c.GetWorkflowRun)
+	r.Post("/api/chaos/workflow-runs/{id}/stop", c.StopWorkflow)
+
 	return r
 }

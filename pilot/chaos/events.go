@@ -14,15 +14,22 @@ const (
 	EventChaosError       ChaosEventType = "ChaosError"
 	EventInjectionStarted ChaosEventType = "InjectionStarted"
 	EventInjectionStopped ChaosEventType = "InjectionStopped"
+	EventWorkflowStarted  ChaosEventType = "WorkflowStarted"
+	EventWorkflowStopped  ChaosEventType = "WorkflowStopped"
+	EventWorkflowStep     ChaosEventType = "WorkflowStep"
 )
 
 // ChaosEvent is written to /data/chaos/events.jsonl.
 // Only the fields relevant to the event type are populated.
 type ChaosEvent struct {
-	Type         ChaosEventType `json:"type"`
-	InjectionID  string         `json:"injection_id"`
-	ScenarioName string         `json:"scenario_name"`
-	Timestamp    string         `json:"timestamp"`
+	Type          ChaosEventType `json:"type"`
+	InjectionID   string         `json:"injection_id"`
+	ScenarioName  string         `json:"scenario_name"`
+	WorkflowID    string         `json:"workflow_id,omitempty"`
+	WorkflowRunID string         `json:"workflow_run_id,omitempty"`
+	StepName      string         `json:"step_name,omitempty"`
+	StepIndex     *int           `json:"step_index,omitempty"`
+	Timestamp     string         `json:"timestamp"`
 
 	// ChaosInjected / ChaosRecovered fields
 	ActionType string   `json:"action_type,omitempty"`
@@ -112,5 +119,39 @@ func NewInjectionStoppedEvent(injectionID, scenarioName, reason string) ChaosEve
 		ScenarioName: scenarioName,
 		Reason:       reason,
 		Timestamp:    Now(),
+	}
+}
+
+func NewWorkflowStartedEvent(workflowID, workflowRunID, workflowName string) ChaosEvent {
+	return ChaosEvent{
+		Type:          EventWorkflowStarted,
+		WorkflowID:    workflowID,
+		WorkflowRunID: workflowRunID,
+		ScenarioName:  workflowName,
+		Timestamp:     Now(),
+	}
+}
+
+func NewWorkflowStoppedEvent(workflowID, workflowRunID, workflowName, reason string) ChaosEvent {
+	return ChaosEvent{
+		Type:          EventWorkflowStopped,
+		WorkflowID:    workflowID,
+		WorkflowRunID: workflowRunID,
+		ScenarioName:  workflowName,
+		Reason:        reason,
+		Timestamp:     Now(),
+	}
+}
+
+func NewWorkflowStepEvent(workflowID, workflowRunID, workflowName, stepName, reason string, stepIndex int) ChaosEvent {
+	return ChaosEvent{
+		Type:          EventWorkflowStep,
+		WorkflowID:    workflowID,
+		WorkflowRunID: workflowRunID,
+		ScenarioName:  workflowName,
+		StepName:      stepName,
+		StepIndex:     &stepIndex,
+		Reason:        reason,
+		Timestamp:     Now(),
 	}
 }

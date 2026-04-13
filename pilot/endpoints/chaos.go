@@ -1,9 +1,9 @@
 package endpoints
 
 import (
-	"github.com/regret-io/regret/pilot-go/ext"
 	"encoding/json"
 	"fmt"
+	"github.com/regret-io/regret/pilot-go/ext"
 	"log/slog"
 	"net/http"
 
@@ -275,6 +275,143 @@ func (c *chaosHandlers) ChaosEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (c *chaosHandlers) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
+	var req CreateWorkflowRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, BadRequest("invalid JSON: "+err.Error()))
+		return
+	}
+	if req.Namespace == "" {
+		req.Namespace = "regret-system"
+	}
+	if len(req.Steps) == 0 {
+		WriteError(w, BadRequest("steps must not be empty"))
+		return
+	}
+	id := fmt.Sprintf("cw-%d", ext.NowUnixMilli())
+	stepsJSON, _ := json.Marshal(req.Steps)
+	record, err := c.state.Sqlite.CreateChaosWorkflow(r.Context(), id, req.Name, req.Namespace, string(stepsJSON))
+	if err != nil {
+		WriteError(w, InternalError(err))
+		return
+	}
+	WriteJSON(w, http.StatusCreated, workflowToResponse(record))
+}
+
+func (c *chaosHandlers) ListWorkflows(w http.ResponseWriter, r *http.Request) {
+	records, err := c.state.Sqlite.ListChaosWorkflows(r.Context())
+	if err != nil {
+		WriteError(w, InternalError(err))
+		return
+	}
+	items := make([]WorkflowResponse, 0, len(records))
+	for i := range records {
+		items = append(items, workflowToResponse(&records[i]))
+	}
+	WriteJSON(w, http.StatusOK, map[string]interface{}{"items": items})
+}
+
+func (c *chaosHandlers) GetWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	record, err := c.state.Sqlite.GetChaosWorkflow(r.Context(), id)
+	if err != nil {
+		WriteError(w, NotFound(fmt.Sprintf("chaos workflow %s not found", id)))
+		return
+	}
+	WriteJSON(w, http.StatusOK, workflowToResponse(record))
+}
+
+func (c *chaosHandlers) DeleteWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	deleted, err := c.state.Sqlite.DeleteChaosWorkflow(r.Context(), id)
+	if err != nil {
+		WriteError(w, InternalError(err))
+		return
+	}
+	if !deleted {
+		WriteError(w, NotFound(fmt.Sprintf("chaos workflow %s not found", id)))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *chaosHandlers) StartWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	record, err := c.state.Sqlite.GetChaosWorkflow(r.Context(), id)
+	if err != nil {
+		WriteError(w, NotFound(fmt.Sprintf("chaos workflow %s not found", id)))
+		return
+	}
+	var steps []chaospkg.ChaosWorkflowStep
+	if err := json.Unmarshal([]byte(record.Steps), &steps); err != nil {
+		WriteError(w, InternalError(fmt.Errorf("invalid workflow steps JSON: %w", err)))
+		return
+	}
+	runID, err := c.state.Chaos.StartWorkflow(r.Context(), chaospkg.ChaosWorkflow{
+		ID:        record.ID,
+		Name:      record.Name,
+		Namespace: record.Namespace,
+		Steps:     steps,
+	})
+	if err != nil {
+		WriteError(w, InternalError(err))
+		return
+	}
+	WriteJSON(w, http.StatusAccepted, StartWorkflowResponse{
+		WorkflowRunID: runID,
+		WorkflowID:    record.ID,
+		Status:        "running",
+	})
+}
+
+func (c *chaosHandlers) StopWorkflow(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "id")
+	if err := c.state.Chaos.StopWorkflow(r.Context(), runID); err != nil {
+		WriteError(w, InternalError(err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *chaosHandlers) ListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
+	records, err := c.state.Sqlite.ListChaosWorkflowRuns(r.Context())
+	if err != nil {
+		WriteError(w, InternalError(err))
+		return
+	}
+	items := make([]WorkflowRunResponse, 0, len(records))
+	for _, rec := range records {
+		items = append(items, WorkflowRunResponse{
+			ID:           rec.ID,
+			WorkflowID:   rec.WorkflowID,
+			WorkflowName: rec.WorkflowName,
+			Status:       rec.Status,
+			StartedAt:    rec.StartedAt,
+			FinishedAt:   rec.FinishedAt,
+			Error:        rec.Error,
+		})
+	}
+	WriteJSON(w, http.StatusOK, map[string]interface{}{"items": items})
+}
+
+func (c *chaosHandlers) GetWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "id")
+	record, err := c.state.Sqlite.GetChaosWorkflowRun(r.Context(), runID)
+	if err != nil {
+		WriteError(w, NotFound(fmt.Sprintf("chaos workflow run %s not found", runID)))
+		return
+	}
+	WriteJSON(w, http.StatusOK, WorkflowRunResponse{
+		ID:           record.ID,
+		WorkflowID:   record.WorkflowID,
+		WorkflowName: record.WorkflowName,
+		Status:       record.Status,
+		StartedAt:    record.StartedAt,
+		FinishedAt:   record.FinishedAt,
+		Error:        record.Error,
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -287,6 +424,18 @@ func scenarioToResponse(r *database.ChaosScenarioRecord) ScenarioResponse {
 		Name:      r.Name,
 		Namespace: r.Namespace,
 		Actions:   actions,
+		CreatedAt: r.CreatedAt,
+	}
+}
+
+func workflowToResponse(r *database.ChaosWorkflowRecord) WorkflowResponse {
+	var steps []json.RawMessage
+	_ = json.Unmarshal([]byte(r.Steps), &steps)
+	return WorkflowResponse{
+		ID:        r.ID,
+		Name:      r.Name,
+		Namespace: r.Namespace,
+		Steps:     steps,
 		CreatedAt: r.CreatedAt,
 	}
 }

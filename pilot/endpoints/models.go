@@ -173,6 +173,36 @@ type InjectRequest struct {
 	Overrides map[string]json.RawMessage `json:"overrides"`
 }
 
+type CreateWorkflowRequest struct {
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Steps     []json.RawMessage `json:"steps"`
+}
+
+type WorkflowResponse struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Steps     []json.RawMessage `json:"steps"`
+	CreatedAt string            `json:"created_at"`
+}
+
+type WorkflowRunResponse struct {
+	ID           string  `json:"id"`
+	WorkflowID   string  `json:"workflow_id"`
+	WorkflowName string  `json:"workflow_name"`
+	Status       string  `json:"status"`
+	StartedAt    string  `json:"started_at"`
+	FinishedAt   *string `json:"finished_at,omitempty"`
+	Error        *string `json:"error,omitempty"`
+}
+
+type StartWorkflowResponse struct {
+	WorkflowRunID string `json:"workflow_run_id"`
+	WorkflowID    string `json:"workflow_id"`
+	Status        string `json:"status"`
+}
+
 // ---------------------------------------------------------------------------
 // Metrics
 // ---------------------------------------------------------------------------
