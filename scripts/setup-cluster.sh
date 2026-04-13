@@ -13,10 +13,13 @@ CLUSTER_NAME="${CLUSTER_NAME:-regret}"
 NAMESPACE="${NAMESPACE:-regret-system}"
 OXIA_NAMESPACE="${OXIA_NAMESPACE:-regret-test}"
 OXIA_CHART_VERSION="${OXIA_CHART_VERSION:-0.0.4}"
+OXIA_IMAGE_REPOSITORY="${OXIA_IMAGE_REPOSITORY:-oxia/oxia}"
+OXIA_IMAGE_TAG="${OXIA_IMAGE_TAG:-v0.16.2-rc6}"
 
 echo "=== Setting up Regret cluster ==="
 echo "Cluster:   $CLUSTER_NAME"
 echo "Namespace: $NAMESPACE"
+echo "Oxia image: ${OXIA_IMAGE_REPOSITORY}:${OXIA_IMAGE_TAG}"
 
 # Step 1: Create Kind cluster
 if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
@@ -40,6 +43,8 @@ helm repo update
 helm upgrade --install oxia oxia/oxia-cluster \
   --namespace "$NAMESPACE" \
   --version "$OXIA_CHART_VERSION" \
+  --set "image.repository=${OXIA_IMAGE_REPOSITORY}" \
+  --set "image.tag=${OXIA_IMAGE_TAG}" \
   --set server.replicas=3 \
   --set coordinator.replicas=3 \
   --set "namespaces[0].name=${OXIA_NAMESPACE}" \
