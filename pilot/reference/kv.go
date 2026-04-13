@@ -16,14 +16,16 @@ type BasicKvReference struct {
 	hypothesisID     string
 	runID            string
 	lastSequenceKeys map[string]string
+	ignoreVersion    bool
 }
 
 // NewBasicKvReference creates a new BasicKvReference backed by a ReferenceStore.
-func NewBasicKvReference(store *ReferenceStore, hypothesisID string) *BasicKvReference {
+func NewBasicKvReference(store *ReferenceStore, hypothesisID string, tolerance ToleranceConfig) *BasicKvReference {
 	return &BasicKvReference{
 		store:            store,
 		hypothesisID:     hypothesisID,
 		lastSequenceKeys: make(map[string]string),
+		ignoreVersion:    tolerance.IgnoreVersion,
 	}
 }
 
@@ -31,7 +33,6 @@ func NewBasicKvReference(store *ReferenceStore, hypothesisID string) *BasicKvRef
 func (r *BasicKvReference) runPrefix() string {
 	return fmt.Sprintf("/ref/%s/%s/", r.hypothesisID, r.runID)
 }
-
 
 // applyWrite applies a successful write to the reference state.
 // Uses the adapter's returned version_id and key when available.
@@ -108,10 +109,9 @@ func (r *BasicKvReference) verifyRead(
 	op *Operation,
 	result *AdapterOpResult,
 ) *SafetyViolation {
-	ignoreVersion := false
 	switch op.Kind.Type {
 	case OpKindGet:
-		return r.verifyGet(op, op.Kind.Key, op.Kind.Comparison, result, ignoreVersion)
+		return r.verifyGet(op, op.Kind.Key, op.Kind.Comparison, result, r.ignoreVersion)
 	case OpKindList:
 		if op.Kind.IndexName != "" {
 			return r.verifyIndexedList(op, op.Kind.IndexName, op.Kind.Start, op.Kind.End, result)
@@ -119,9 +119,9 @@ func (r *BasicKvReference) verifyRead(
 		return r.verifyList(op, op.Kind.Start, op.Kind.End, result)
 	case OpKindScan:
 		if op.Kind.IndexName != "" {
-			return r.verifyIndexedRangeScan(op, op.Kind.IndexName, op.Kind.Start, op.Kind.End, result, ignoreVersion)
+			return r.verifyIndexedRangeScan(op, op.Kind.IndexName, op.Kind.Start, op.Kind.End, result, r.ignoreVersion)
 		}
-		return r.verifyRangeScan(op, op.Kind.Start, op.Kind.End, result, ignoreVersion)
+		return r.verifyRangeScan(op, op.Kind.Start, op.Kind.End, result, r.ignoreVersion)
 	default:
 		return nil
 	}
@@ -367,7 +367,7 @@ func (r *BasicKvReference) verifyIndexedGet(
 			}
 			return &SafetyViolation{
 				OpID:     op.ID,
-				Op:       "indexed_get",
+				Op:       "get",
 				Expected: "not_found",
 				Actual:   fmt.Sprintf("ok value=%s", actualValue),
 			}
@@ -387,7 +387,7 @@ func (r *BasicKvReference) verifyIndexedGet(
 	if result.Status != OpStatusOk {
 		return &SafetyViolation{
 			OpID:     op.ID,
-			Op:       "indexed_get",
+			Op:       "get",
 			Expected: fmt.Sprintf("ok value=%s", entry.Value),
 			Actual:   fmt.Sprintf("status=%s", result.Status),
 		}
@@ -395,7 +395,7 @@ func (r *BasicKvReference) verifyIndexedGet(
 	if result.Value != nil && *result.Value != entry.Value {
 		return &SafetyViolation{
 			OpID:     op.ID,
-			Op:       "indexed_get",
+			Op:       "get",
 			Expected: fmt.Sprintf("value=%s", entry.Value),
 			Actual:   fmt.Sprintf("value=%s", *result.Value),
 		}
@@ -404,7 +404,7 @@ func (r *BasicKvReference) verifyIndexedGet(
 		if *result.VersionID != entry.Version {
 			return &SafetyViolation{
 				OpID:     op.ID,
-				Op:       "indexed_get",
+				Op:       "get",
 				Expected: fmt.Sprintf("version=%d", entry.Version),
 				Actual:   fmt.Sprintf("version=%d", *result.VersionID),
 			}
@@ -434,7 +434,7 @@ func (r *BasicKvReference) verifyIndexedList(
 		if _, ok := actualSet[exp]; !ok {
 			return &SafetyViolation{
 				OpID:     op.ID,
-				Op:       "indexed_list",
+				Op:       "list",
 				Expected: fmt.Sprintf("key %s present", exp),
 				Actual:   fmt.Sprintf("key %s missing from %d actual keys", exp, len(actualKeys)),
 			}
@@ -471,7 +471,7 @@ func (r *BasicKvReference) verifyIndexedRangeScan(
 		if !ok {
 			return &SafetyViolation{
 				OpID:     op.ID,
-				Op:       "indexed_range_scan",
+				Op:       "range_scan",
 				Expected: fmt.Sprintf("key %s present", expKey),
 				Actual:   fmt.Sprintf("key %s missing from %d actual records", expKey, len(actualRecords)),
 			}
@@ -479,7 +479,7 @@ func (r *BasicKvReference) verifyIndexedRangeScan(
 		if expEntry.Value != act.Value {
 			return &SafetyViolation{
 				OpID:     op.ID,
-				Op:       "indexed_range_scan",
+				Op:       "range_scan",
 				Expected: fmt.Sprintf("key=%s value=%s", expKey, expEntry.Value),
 				Actual:   fmt.Sprintf("key=%s value=%s", act.Key, act.Value),
 			}
@@ -751,7 +751,7 @@ func (r *BasicKvReference) ProcessResponse(
 					if assignedKey <= lastKey {
 						failures = append(failures, SafetyViolation{
 							OpID:     op.ID,
-							Op:       "sequence_put",
+							Op:       "put",
 							Expected: fmt.Sprintf("key > %s", lastKey),
 							Actual:   fmt.Sprintf("key = %s", assignedKey),
 						})
@@ -759,7 +759,7 @@ func (r *BasicKvReference) ProcessResponse(
 				}
 				r.lastSequenceKeys[op.Kind.Prefix] = assignedKey
 			} else {
-				slog.Warn("sequence_put succeeded but no key returned",
+				slog.Warn("sequence put succeeded but no key returned",
 					slog.String("op_id", op.ID))
 			}
 		}
@@ -778,7 +778,6 @@ func (r *BasicKvReference) ProcessResponse(
 func (r *BasicKvReference) VerifyCheckpoint(
 	actual map[string]*RecordState,
 ) []CheckpointFailure {
-	ignoreVersion := false
 	prefix := r.runPrefix()
 	expectedAll, _ := r.store.db.refScanAll(prefix)
 	if expectedAll == nil {
@@ -808,7 +807,7 @@ func (r *BasicKvReference) VerifyCheckpoint(
 				Actual:   actualState,
 			})
 		}
-		if !ignoreVersion && actualState.VersionID != ke.entry.Version {
+		if !r.ignoreVersion && actualState.VersionID != ke.entry.Version {
 			failures = append(failures, CheckpointFailure{
 				Key:      ke.key,
 				Expected: &RecordState{Value: &ke.entry.Value, VersionID: ke.entry.Version},

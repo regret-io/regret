@@ -124,7 +124,6 @@ func (p *GenerateParams) WriteWeights() []WeightEntry {
 	workload := p.ResolvedWorkload()
 	writeOps := []string{
 		"put", "delete", "delete_range", "cas",
-		"ephemeral_put", "indexed_put", "sequence_put",
 	}
 	var entries []WeightEntry
 	for _, op := range writeOps {
@@ -150,7 +149,6 @@ func (p *GenerateParams) ReadWeights() []WeightEntry {
 	workload := p.ResolvedWorkload()
 	readOps := []string{
 		"get", "range_scan", "list",
-		"indexed_get", "indexed_list", "indexed_range_scan",
 	}
 	var entries []WeightEntry
 	for _, op := range readOps {
@@ -176,7 +174,6 @@ func (p *GenerateParams) ReadFraction() float64 {
 	workload := p.ResolvedWorkload()
 	readOps := []string{
 		"get", "range_scan", "list",
-		"indexed_get", "indexed_list", "indexed_range_scan",
 	}
 	total := 0.0
 	for _, w := range workload {

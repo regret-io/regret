@@ -1,6 +1,9 @@
 package reference
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // RecordState is the unified record state for checkpoint comparison.
 type RecordState struct {
@@ -45,7 +48,6 @@ type CheckpointFailure struct {
 	Actual   *RecordState `json:"actual,omitempty"`
 }
 
-
 // AdapterBatchResponse is the adapter's response for a batch of operations.
 type AdapterBatchResponse struct {
 	BatchID string            `json:"batch_id"`
@@ -54,17 +56,17 @@ type AdapterBatchResponse struct {
 
 // AdapterOpResult is the result of a single operation from the adapter.
 type AdapterOpResult struct {
-	OpID          string                `json:"op_id"`
-	Op            string                `json:"op"`
-	Status        string                `json:"status"`
-	Key           *string               `json:"key,omitempty"`
-	Value         *string               `json:"value,omitempty"`
-	VersionID     *uint64               `json:"version_id,omitempty"`
-	Records       []RangeRecord         `json:"records,omitempty"`
-	Keys          []string              `json:"keys,omitempty"`
-	DeletedCount  *uint64               `json:"deleted_count,omitempty"`
-	Notifications []NotificationRecord  `json:"notifications,omitempty"`
-	Message       *string               `json:"message,omitempty"`
+	OpID          string               `json:"op_id"`
+	Op            string               `json:"op"`
+	Status        string               `json:"status"`
+	Key           *string              `json:"key,omitempty"`
+	Value         *string              `json:"value,omitempty"`
+	VersionID     *uint64              `json:"version_id,omitempty"`
+	Records       []RangeRecord        `json:"records,omitempty"`
+	Keys          []string             `json:"keys,omitempty"`
+	DeletedCount  *uint64              `json:"deleted_count,omitempty"`
+	Notifications []NotificationRecord `json:"notifications,omitempty"`
+	Message       *string              `json:"message,omitempty"`
 }
 
 // GetComparison enumerates get comparison types.
@@ -180,8 +182,8 @@ type ReferenceModel interface {
 }
 
 // CreateReference creates a reference model backed by a ReferenceStore.
-func CreateReference(generatorName string, store *ReferenceStore, hypothesisID string) ReferenceModel {
-	return NewBasicKvReference(store, hypothesisID)
+func CreateReference(generatorName string, store *ReferenceStore, hypothesisID string, tolerance *string) ReferenceModel {
+	return NewBasicKvReference(store, hypothesisID, ParseTolerance(tolerance))
 }
 
 // ReferenceStore wraps a pebbleDB instance and provides the reference storage
@@ -235,4 +237,34 @@ type refOp struct {
 type keyEntry struct {
 	key   string
 	entry refEntry
+}
+
+type toleranceSpec struct {
+	Structural []struct {
+		Field  string `json:"field"`
+		Ignore bool   `json:"ignore"`
+	} `json:"structural"`
+}
+
+type ToleranceConfig struct {
+	IgnoreVersion bool
+}
+
+func ParseTolerance(raw *string) ToleranceConfig {
+	if raw == nil || *raw == "" {
+		return ToleranceConfig{}
+	}
+
+	var spec toleranceSpec
+	if err := json.Unmarshal([]byte(*raw), &spec); err != nil {
+		return ToleranceConfig{}
+	}
+
+	cfg := ToleranceConfig{}
+	for _, rule := range spec.Structural {
+		if rule.Ignore && rule.Field == "version_id" {
+			cfg.IgnoreVersion = true
+		}
+	}
+	return cfg
 }

@@ -92,6 +92,14 @@ message CasResult {
     Record record = 1;
 }
 
+message WatchStartOp {
+    string prefix = 1;
+}
+
+message SessionRestartOp {}
+
+message GetNotificationsOp {}
+
 // --- Batch ---
 
 message Operation {
@@ -104,6 +112,9 @@ message Operation {
         ScanOp scan = 6;
         ListOp list = 7;
         CasOp cas = 8;
+        WatchStartOp watch_start = 9;
+        SessionRestartOp session_restart = 10;
+        GetNotificationsOp get_notifications = 11;
     }
 }
 

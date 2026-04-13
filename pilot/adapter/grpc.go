@@ -195,6 +195,23 @@ func serializeOp(id string, kind reference.OpKind) *proto.Operation {
 				NewValue:          []byte(kind.NewValue),
 			}},
 		}
+	case reference.OpKindWatchStart:
+		return &proto.Operation{
+			OpId: id,
+			Op: &proto.Operation_WatchStart{WatchStart: &proto.WatchStartOp{
+				Prefix: kind.Prefix,
+			}},
+		}
+	case reference.OpKindSessionRestart:
+		return &proto.Operation{
+			OpId: id,
+			Op:   &proto.Operation_SessionRestart{SessionRestart: &proto.SessionRestartOp{}},
+		}
+	case reference.OpKindGetNotifications:
+		return &proto.Operation{
+			OpId: id,
+			Op:   &proto.Operation_GetNotifications{GetNotifications: &proto.GetNotificationsOp{}},
+		}
 	default:
 		return &proto.Operation{OpId: id}
 	}

@@ -142,9 +142,9 @@ func (g *generatorHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func toGeneratorResponse(g *database.GeneratorRecord) GeneratorResponse {
-	var workload interface{}
+	workload := map[string]float64{}
 	if err := json.Unmarshal([]byte(g.Workload), &workload); err != nil {
-		workload = map[string]interface{}{}
+		workload = map[string]float64{}
 	}
 	return GeneratorResponse{
 		Name:        g.Name,

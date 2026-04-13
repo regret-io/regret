@@ -8,6 +8,14 @@ import (
 // keyPadding is the width for zero-padded numeric keys.
 const keyPadding = 20
 
+const (
+	secondaryIndexPutRatio       = 0.25 / 0.40
+	secondaryIndexGetRatio       = 0.15 / 0.25
+	secondaryIndexListRatio      = 0.10 / 0.15
+	secondaryIndexRangeScanRatio = 0.10 / 0.15
+	sequencePutRatio             = 0.40 / 0.50
+)
+
 // BasicKvGenerator generates origin datasets for all KV-family profiles.
 type BasicKvGenerator struct {
 	rng              *rand.Rand
@@ -95,9 +103,9 @@ func (g *BasicKvGenerator) genOp() OriginOp {
 func (g *BasicKvGenerator) dispatchOp(opType, id string) OriginOp {
 	switch opType {
 	case "put":
-		return g.genPut(id)
+		return g.genProfilePut(id)
 	case "get":
-		return g.genGet(id)
+		return g.genProfileGet(id)
 	case "get_floor":
 		return g.genGetWithComparison(id, "floor")
 	case "get_ceiling":
@@ -111,21 +119,9 @@ func (g *BasicKvGenerator) dispatchOp(opType, id string) OriginOp {
 	case "delete_range":
 		return g.genDeleteRange(id)
 	case "list":
-		return g.genList(id)
+		return g.genProfileList(id)
 	case "range_scan":
-		return g.genRangeScan(id)
-	case "ephemeral_put":
-		return g.genEphemeralPut(id)
-	case "indexed_put":
-		return g.genIndexedPut(id)
-	case "indexed_get":
-		return g.genIndexedGet(id)
-	case "indexed_list":
-		return g.genIndexedList(id)
-	case "indexed_range_scan":
-		return g.genIndexedRangeScan(id)
-	case "sequence_put":
-		return g.genSequencePut(id)
+		return g.genProfileRangeScan(id)
 	case "watch_start":
 		return g.genWatchStart(id)
 	case "session_restart":
@@ -135,6 +131,43 @@ func (g *BasicKvGenerator) dispatchOp(opType, id string) OriginOp {
 	default:
 		return g.genPut(id)
 	}
+}
+
+func (g *BasicKvGenerator) genProfilePut(id string) OriginOp {
+	switch g.params.Generator {
+	case "kv-ephemeral-notification":
+		return g.genEphemeralPut(id)
+	case "kv-secondary-index":
+		if g.rng.Float64() < secondaryIndexPutRatio {
+			return g.genIndexedPut(id)
+		}
+	case "kv-sequence":
+		if g.rng.Float64() < sequencePutRatio {
+			return g.genSequencePut(id)
+		}
+	}
+	return g.genPut(id)
+}
+
+func (g *BasicKvGenerator) genProfileGet(id string) OriginOp {
+	if g.params.Generator == "kv-secondary-index" && g.rng.Float64() < secondaryIndexGetRatio {
+		return g.genIndexedGet(id)
+	}
+	return g.genGet(id)
+}
+
+func (g *BasicKvGenerator) genProfileList(id string) OriginOp {
+	if g.params.Generator == "kv-secondary-index" && g.rng.Float64() < secondaryIndexListRatio {
+		return g.genIndexedList(id)
+	}
+	return g.genList(id)
+}
+
+func (g *BasicKvGenerator) genProfileRangeScan(id string) OriginOp {
+	if g.params.Generator == "kv-secondary-index" && g.rng.Float64() < secondaryIndexRangeScanRatio {
+		return g.genIndexedRangeScan(id)
+	}
+	return g.genRangeScan(id)
 }
 
 // -- Write operations --

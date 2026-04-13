@@ -177,25 +177,16 @@ public class RegretAdapterServer {
             String opId = proto.getOpId();
             if (proto.hasPut()) {
                 var p = proto.getPut();
-                if (p.getSequence()) {
-                    return new Operation(opId, OpType.SEQUENCE_PUT,
-                            new io.regret.sdk.payload.SequencePutPayload(p.getPrefix(),
-                                    p.getValue().toString(StandardCharsets.UTF_8), p.getDelta()).toBytes());
-                }
-                if (p.getEphemeral()) {
-                    return new Operation(opId, OpType.EPHEMERAL_PUT,
-                            new io.regret.sdk.payload.EphemeralPutPayload(p.getKey(),
-                                    p.getValue().toString(StandardCharsets.UTF_8)).toBytes());
-                }
-                if (!p.getIndexName().isEmpty()) {
-                    return new Operation(opId, OpType.INDEXED_PUT,
-                            new io.regret.sdk.payload.IndexedPutPayload(p.getKey(),
-                                    p.getValue().toString(StandardCharsets.UTF_8),
-                                    p.getIndexName(), p.getIndexKey()).toBytes());
-                }
                 return new Operation(opId, OpType.PUT,
-                        new io.regret.sdk.payload.PutPayload(p.getKey(),
-                                p.getValue().toString(StandardCharsets.UTF_8)).toBytes());
+                        new io.regret.sdk.payload.PutPayload(
+                                p.getKey(),
+                                p.getValue().toString(StandardCharsets.UTF_8),
+                                p.getEphemeral(),
+                                p.getSequence(),
+                                p.getPrefix(),
+                                p.getDelta(),
+                                p.getIndexName(),
+                                p.getIndexKey()).toBytes());
             }
             if (proto.hasGet()) {
                 var g = proto.getGet();
@@ -221,7 +212,7 @@ public class RegretAdapterServer {
             if (proto.hasScan()) {
                 var s = proto.getScan();
                 if (!s.getIndexName().isEmpty()) {
-                    return new Operation(opId, OpType.INDEXED_RANGE_SCAN,
+                    return new Operation(opId, OpType.RANGE_SCAN,
                             new io.regret.sdk.payload.IndexedRangeScanPayload(s.getIndexName(),
                                     s.getStart(), s.getEnd()).toBytes());
                 }
@@ -231,7 +222,7 @@ public class RegretAdapterServer {
             if (proto.hasList()) {
                 var l = proto.getList();
                 if (!l.getIndexName().isEmpty()) {
-                    return new Operation(opId, OpType.INDEXED_LIST,
+                    return new Operation(opId, OpType.LIST,
                             new io.regret.sdk.payload.IndexedListPayload(l.getIndexName(),
                                     l.getStart(), l.getEnd()).toBytes());
                 }
@@ -243,6 +234,17 @@ public class RegretAdapterServer {
                 return new Operation(opId, OpType.CAS,
                         new io.regret.sdk.payload.CasPayload(c.getKey(), c.getExpectedVersionId(),
                                 c.getNewValue().toString(StandardCharsets.UTF_8)).toBytes());
+            }
+            if (proto.hasWatchStart()) {
+                var w = proto.getWatchStart();
+                return new Operation(opId, OpType.WATCH_START,
+                        new io.regret.sdk.payload.GetPayload(w.getPrefix()).toBytes());
+            }
+            if (proto.hasSessionRestart()) {
+                return new Operation(opId, OpType.SESSION_RESTART, new byte[0]);
+            }
+            if (proto.hasGetNotifications()) {
+                return new Operation(opId, OpType.GET_NOTIFICATIONS, new byte[0]);
             }
             throw new IllegalArgumentException("Unknown operation type in proto: " + proto);
         }

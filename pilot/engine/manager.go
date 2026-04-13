@@ -37,9 +37,9 @@ func NewManagerRegistry(shared SharedServices) *ManagerRegistry {
 }
 
 // CreateFromHypothesis creates and registers a new manager for the given hypothesis.
-func (r *ManagerRegistry) CreateFromHypothesis(id, generatorName string, _ *string) {
-	ref := reference.CreateReference(generatorName, r.shared.RefStore, id)
-	mgr := NewHypothesisManager(id, generatorName, ref, r.shared)
+func (r *ManagerRegistry) CreateFromHypothesis(id, generatorName string, tolerance *string) {
+	ref := reference.CreateReference(generatorName, r.shared.RefStore, id, tolerance)
+	mgr := NewHypothesisManager(id, generatorName, tolerance, ref, r.shared)
 	r.mu.Lock()
 	r.managers[id] = mgr
 	r.mu.Unlock()
@@ -77,6 +77,7 @@ type HypothesisManager struct {
 	mu            sync.Mutex
 	HypothesisID  string
 	GeneratorName string
+	Tolerance     *string
 	reference     reference.ReferenceModel
 	activeRun     *activeRun
 	resumeRunID   *string
@@ -84,10 +85,11 @@ type HypothesisManager struct {
 }
 
 // NewHypothesisManager creates a new HypothesisManager.
-func NewHypothesisManager(id, generatorName string, ref reference.ReferenceModel, shared SharedServices) *HypothesisManager {
+func NewHypothesisManager(id, generatorName string, tolerance *string, ref reference.ReferenceModel, shared SharedServices) *HypothesisManager {
 	return &HypothesisManager{
 		HypothesisID:  id,
 		GeneratorName: generatorName,
+		Tolerance:     tolerance,
 		reference:     ref,
 		shared:        shared,
 	}
@@ -112,7 +114,7 @@ func (m *HypothesisManager) StartRun(
 	}
 
 	if m.reference == nil {
-		m.reference = reference.CreateReference(m.GeneratorName, m.shared.RefStore, m.HypothesisID)
+		m.reference = reference.CreateReference(m.GeneratorName, m.shared.RefStore, m.HypothesisID, m.Tolerance)
 	}
 
 	var runID string
@@ -295,4 +297,3 @@ func (m *HypothesisManager) Progress() *ProgressInfo {
 	}
 	return m.activeRun.progress
 }
-

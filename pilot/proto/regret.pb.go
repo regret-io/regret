@@ -845,6 +845,122 @@ func (x *CasResult) GetRecord() *Record {
 	return nil
 }
 
+type WatchStartOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Prefix        string                 `protobuf:"bytes,1,opt,name=prefix,proto3" json:"prefix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchStartOp) Reset() {
+	*x = WatchStartOp{}
+	mi := &file_regret_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchStartOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchStartOp) ProtoMessage() {}
+
+func (x *WatchStartOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchStartOp.ProtoReflect.Descriptor instead.
+func (*WatchStartOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *WatchStartOp) GetPrefix() string {
+	if x != nil {
+		return x.Prefix
+	}
+	return ""
+}
+
+type SessionRestartOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionRestartOp) Reset() {
+	*x = SessionRestartOp{}
+	mi := &file_regret_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionRestartOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionRestartOp) ProtoMessage() {}
+
+func (x *SessionRestartOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionRestartOp.ProtoReflect.Descriptor instead.
+func (*SessionRestartOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{17}
+}
+
+type GetNotificationsOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetNotificationsOp) Reset() {
+	*x = GetNotificationsOp{}
+	mi := &file_regret_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetNotificationsOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetNotificationsOp) ProtoMessage() {}
+
+func (x *GetNotificationsOp) ProtoReflect() protoreflect.Message {
+	mi := &file_regret_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetNotificationsOp.ProtoReflect.Descriptor instead.
+func (*GetNotificationsOp) Descriptor() ([]byte, []int) {
+	return file_regret_proto_rawDescGZIP(), []int{18}
+}
+
 type Operation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	OpId  string                 `protobuf:"bytes,1,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
@@ -857,6 +973,9 @@ type Operation struct {
 	//	*Operation_Scan
 	//	*Operation_List
 	//	*Operation_Cas
+	//	*Operation_WatchStart
+	//	*Operation_SessionRestart
+	//	*Operation_GetNotifications
 	Op            isOperation_Op `protobuf_oneof:"op"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -864,7 +983,7 @@ type Operation struct {
 
 func (x *Operation) Reset() {
 	*x = Operation{}
-	mi := &file_regret_proto_msgTypes[16]
+	mi := &file_regret_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -876,7 +995,7 @@ func (x *Operation) String() string {
 func (*Operation) ProtoMessage() {}
 
 func (x *Operation) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[16]
+	mi := &file_regret_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -889,7 +1008,7 @@ func (x *Operation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Operation.ProtoReflect.Descriptor instead.
 func (*Operation) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{16}
+	return file_regret_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Operation) GetOpId() string {
@@ -969,6 +1088,33 @@ func (x *Operation) GetCas() *CasOp {
 	return nil
 }
 
+func (x *Operation) GetWatchStart() *WatchStartOp {
+	if x != nil {
+		if x, ok := x.Op.(*Operation_WatchStart); ok {
+			return x.WatchStart
+		}
+	}
+	return nil
+}
+
+func (x *Operation) GetSessionRestart() *SessionRestartOp {
+	if x != nil {
+		if x, ok := x.Op.(*Operation_SessionRestart); ok {
+			return x.SessionRestart
+		}
+	}
+	return nil
+}
+
+func (x *Operation) GetGetNotifications() *GetNotificationsOp {
+	if x != nil {
+		if x, ok := x.Op.(*Operation_GetNotifications); ok {
+			return x.GetNotifications
+		}
+	}
+	return nil
+}
+
 type isOperation_Op interface {
 	isOperation_Op()
 }
@@ -1001,6 +1147,18 @@ type Operation_Cas struct {
 	Cas *CasOp `protobuf:"bytes,8,opt,name=cas,proto3,oneof"`
 }
 
+type Operation_WatchStart struct {
+	WatchStart *WatchStartOp `protobuf:"bytes,9,opt,name=watch_start,json=watchStart,proto3,oneof"`
+}
+
+type Operation_SessionRestart struct {
+	SessionRestart *SessionRestartOp `protobuf:"bytes,10,opt,name=session_restart,json=sessionRestart,proto3,oneof"`
+}
+
+type Operation_GetNotifications struct {
+	GetNotifications *GetNotificationsOp `protobuf:"bytes,11,opt,name=get_notifications,json=getNotifications,proto3,oneof"`
+}
+
 func (*Operation_Put) isOperation_Op() {}
 
 func (*Operation_Get) isOperation_Op() {}
@@ -1014,6 +1172,12 @@ func (*Operation_Scan) isOperation_Op() {}
 func (*Operation_List) isOperation_Op() {}
 
 func (*Operation_Cas) isOperation_Op() {}
+
+func (*Operation_WatchStart) isOperation_Op() {}
+
+func (*Operation_SessionRestart) isOperation_Op() {}
+
+func (*Operation_GetNotifications) isOperation_Op() {}
 
 type OpResult struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
@@ -1036,7 +1200,7 @@ type OpResult struct {
 
 func (x *OpResult) Reset() {
 	*x = OpResult{}
-	mi := &file_regret_proto_msgTypes[17]
+	mi := &file_regret_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1048,7 +1212,7 @@ func (x *OpResult) String() string {
 func (*OpResult) ProtoMessage() {}
 
 func (x *OpResult) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[17]
+	mi := &file_regret_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1061,7 +1225,7 @@ func (x *OpResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpResult.ProtoReflect.Descriptor instead.
 func (*OpResult) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{17}
+	return file_regret_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *OpResult) GetOpId() string {
@@ -1211,7 +1375,7 @@ type BatchRequest struct {
 
 func (x *BatchRequest) Reset() {
 	*x = BatchRequest{}
-	mi := &file_regret_proto_msgTypes[18]
+	mi := &file_regret_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1223,7 +1387,7 @@ func (x *BatchRequest) String() string {
 func (*BatchRequest) ProtoMessage() {}
 
 func (x *BatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[18]
+	mi := &file_regret_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1236,7 +1400,7 @@ func (x *BatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchRequest.ProtoReflect.Descriptor instead.
 func (*BatchRequest) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{18}
+	return file_regret_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *BatchRequest) GetBatchId() string {
@@ -1263,7 +1427,7 @@ type BatchResponse struct {
 
 func (x *BatchResponse) Reset() {
 	*x = BatchResponse{}
-	mi := &file_regret_proto_msgTypes[19]
+	mi := &file_regret_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1275,7 +1439,7 @@ func (x *BatchResponse) String() string {
 func (*BatchResponse) ProtoMessage() {}
 
 func (x *BatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[19]
+	mi := &file_regret_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1288,7 +1452,7 @@ func (x *BatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchResponse.ProtoReflect.Descriptor instead.
 func (*BatchResponse) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{19}
+	return file_regret_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *BatchResponse) GetBatchId() string {
@@ -1314,7 +1478,7 @@ type ReadStateRequest struct {
 
 func (x *ReadStateRequest) Reset() {
 	*x = ReadStateRequest{}
-	mi := &file_regret_proto_msgTypes[20]
+	mi := &file_regret_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1326,7 +1490,7 @@ func (x *ReadStateRequest) String() string {
 func (*ReadStateRequest) ProtoMessage() {}
 
 func (x *ReadStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[20]
+	mi := &file_regret_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1339,7 +1503,7 @@ func (x *ReadStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadStateRequest.ProtoReflect.Descriptor instead.
 func (*ReadStateRequest) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{20}
+	return file_regret_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ReadStateRequest) GetKeyPrefix() string {
@@ -1358,7 +1522,7 @@ type ReadStateResponse struct {
 
 func (x *ReadStateResponse) Reset() {
 	*x = ReadStateResponse{}
-	mi := &file_regret_proto_msgTypes[21]
+	mi := &file_regret_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1370,7 +1534,7 @@ func (x *ReadStateResponse) String() string {
 func (*ReadStateResponse) ProtoMessage() {}
 
 func (x *ReadStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[21]
+	mi := &file_regret_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1383,7 +1547,7 @@ func (x *ReadStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadStateResponse.ProtoReflect.Descriptor instead.
 func (*ReadStateResponse) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{21}
+	return file_regret_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ReadStateResponse) GetRecords() []*Record {
@@ -1402,7 +1566,7 @@ type CleanupRequest struct {
 
 func (x *CleanupRequest) Reset() {
 	*x = CleanupRequest{}
-	mi := &file_regret_proto_msgTypes[22]
+	mi := &file_regret_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1414,7 +1578,7 @@ func (x *CleanupRequest) String() string {
 func (*CleanupRequest) ProtoMessage() {}
 
 func (x *CleanupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[22]
+	mi := &file_regret_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1427,7 +1591,7 @@ func (x *CleanupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupRequest.ProtoReflect.Descriptor instead.
 func (*CleanupRequest) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{22}
+	return file_regret_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CleanupRequest) GetKeyPrefix() string {
@@ -1445,7 +1609,7 @@ type CleanupResponse struct {
 
 func (x *CleanupResponse) Reset() {
 	*x = CleanupResponse{}
-	mi := &file_regret_proto_msgTypes[23]
+	mi := &file_regret_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1457,7 +1621,7 @@ func (x *CleanupResponse) String() string {
 func (*CleanupResponse) ProtoMessage() {}
 
 func (x *CleanupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_regret_proto_msgTypes[23]
+	mi := &file_regret_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1470,7 +1634,7 @@ func (x *CleanupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupResponse.ProtoReflect.Descriptor instead.
 func (*CleanupResponse) Descriptor() ([]byte, []int) {
-	return file_regret_proto_rawDescGZIP(), []int{23}
+	return file_regret_proto_rawDescGZIP(), []int{26}
 }
 
 var File_regret_proto protoreflect.FileDescriptor
@@ -1535,7 +1699,11 @@ const file_regret_proto_rawDesc = "" +
 	"\x13expected_version_id\x18\x02 \x01(\x04R\x11expectedVersionId\x12\x1b\n" +
 	"\tnew_value\x18\x03 \x01(\fR\bnewValue\"6\n" +
 	"\tCasResult\x12)\n" +
-	"\x06record\x18\x01 \x01(\v2\x11.regret.v1.RecordR\x06record\"\xd8\x02\n" +
+	"\x06record\x18\x01 \x01(\v2\x11.regret.v1.RecordR\x06record\"&\n" +
+	"\fWatchStartOp\x12\x16\n" +
+	"\x06prefix\x18\x01 \x01(\tR\x06prefix\"\x12\n" +
+	"\x10SessionRestartOp\"\x14\n" +
+	"\x12GetNotificationsOp\"\xaa\x04\n" +
 	"\tOperation\x12\x13\n" +
 	"\x05op_id\x18\x01 \x01(\tR\x04opId\x12$\n" +
 	"\x03put\x18\x02 \x01(\v2\x10.regret.v1.PutOpH\x00R\x03put\x12$\n" +
@@ -1544,7 +1712,12 @@ const file_regret_proto_rawDesc = "" +
 	"\fdelete_range\x18\x05 \x01(\v2\x18.regret.v1.DeleteRangeOpH\x00R\vdeleteRange\x12'\n" +
 	"\x04scan\x18\x06 \x01(\v2\x11.regret.v1.ScanOpH\x00R\x04scan\x12'\n" +
 	"\x04list\x18\a \x01(\v2\x11.regret.v1.ListOpH\x00R\x04list\x12$\n" +
-	"\x03cas\x18\b \x01(\v2\x10.regret.v1.CasOpH\x00R\x03casB\x04\n" +
+	"\x03cas\x18\b \x01(\v2\x10.regret.v1.CasOpH\x00R\x03cas\x12:\n" +
+	"\vwatch_start\x18\t \x01(\v2\x17.regret.v1.WatchStartOpH\x00R\n" +
+	"watchStart\x12F\n" +
+	"\x0fsession_restart\x18\n" +
+	" \x01(\v2\x1b.regret.v1.SessionRestartOpH\x00R\x0esessionRestart\x12L\n" +
+	"\x11get_notifications\x18\v \x01(\v2\x1d.regret.v1.GetNotificationsOpH\x00R\x10getNotificationsB\x04\n" +
 	"\x02op\"\xa9\x03\n" +
 	"\bOpResult\x12\x13\n" +
 	"\x05op_id\x18\x01 \x01(\tR\x04opId\x12\x16\n" +
@@ -1592,32 +1765,35 @@ func file_regret_proto_rawDescGZIP() []byte {
 	return file_regret_proto_rawDescData
 }
 
-var file_regret_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_regret_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_regret_proto_goTypes = []any{
-	(*RecordMeta)(nil),        // 0: regret.v1.RecordMeta
-	(*Record)(nil),            // 1: regret.v1.Record
-	(*PutOp)(nil),             // 2: regret.v1.PutOp
-	(*PutResult)(nil),         // 3: regret.v1.PutResult
-	(*GetOp)(nil),             // 4: regret.v1.GetOp
-	(*GetResult)(nil),         // 5: regret.v1.GetResult
-	(*DeleteOp)(nil),          // 6: regret.v1.DeleteOp
-	(*DeleteResult)(nil),      // 7: regret.v1.DeleteResult
-	(*DeleteRangeOp)(nil),     // 8: regret.v1.DeleteRangeOp
-	(*DeleteRangeResult)(nil), // 9: regret.v1.DeleteRangeResult
-	(*ScanOp)(nil),            // 10: regret.v1.ScanOp
-	(*ScanResult)(nil),        // 11: regret.v1.ScanResult
-	(*ListOp)(nil),            // 12: regret.v1.ListOp
-	(*ListResult)(nil),        // 13: regret.v1.ListResult
-	(*CasOp)(nil),             // 14: regret.v1.CasOp
-	(*CasResult)(nil),         // 15: regret.v1.CasResult
-	(*Operation)(nil),         // 16: regret.v1.Operation
-	(*OpResult)(nil),          // 17: regret.v1.OpResult
-	(*BatchRequest)(nil),      // 18: regret.v1.BatchRequest
-	(*BatchResponse)(nil),     // 19: regret.v1.BatchResponse
-	(*ReadStateRequest)(nil),  // 20: regret.v1.ReadStateRequest
-	(*ReadStateResponse)(nil), // 21: regret.v1.ReadStateResponse
-	(*CleanupRequest)(nil),    // 22: regret.v1.CleanupRequest
-	(*CleanupResponse)(nil),   // 23: regret.v1.CleanupResponse
+	(*RecordMeta)(nil),         // 0: regret.v1.RecordMeta
+	(*Record)(nil),             // 1: regret.v1.Record
+	(*PutOp)(nil),              // 2: regret.v1.PutOp
+	(*PutResult)(nil),          // 3: regret.v1.PutResult
+	(*GetOp)(nil),              // 4: regret.v1.GetOp
+	(*GetResult)(nil),          // 5: regret.v1.GetResult
+	(*DeleteOp)(nil),           // 6: regret.v1.DeleteOp
+	(*DeleteResult)(nil),       // 7: regret.v1.DeleteResult
+	(*DeleteRangeOp)(nil),      // 8: regret.v1.DeleteRangeOp
+	(*DeleteRangeResult)(nil),  // 9: regret.v1.DeleteRangeResult
+	(*ScanOp)(nil),             // 10: regret.v1.ScanOp
+	(*ScanResult)(nil),         // 11: regret.v1.ScanResult
+	(*ListOp)(nil),             // 12: regret.v1.ListOp
+	(*ListResult)(nil),         // 13: regret.v1.ListResult
+	(*CasOp)(nil),              // 14: regret.v1.CasOp
+	(*CasResult)(nil),          // 15: regret.v1.CasResult
+	(*WatchStartOp)(nil),       // 16: regret.v1.WatchStartOp
+	(*SessionRestartOp)(nil),   // 17: regret.v1.SessionRestartOp
+	(*GetNotificationsOp)(nil), // 18: regret.v1.GetNotificationsOp
+	(*Operation)(nil),          // 19: regret.v1.Operation
+	(*OpResult)(nil),           // 20: regret.v1.OpResult
+	(*BatchRequest)(nil),       // 21: regret.v1.BatchRequest
+	(*BatchResponse)(nil),      // 22: regret.v1.BatchResponse
+	(*ReadStateRequest)(nil),   // 23: regret.v1.ReadStateRequest
+	(*ReadStateResponse)(nil),  // 24: regret.v1.ReadStateResponse
+	(*CleanupRequest)(nil),     // 25: regret.v1.CleanupRequest
+	(*CleanupResponse)(nil),    // 26: regret.v1.CleanupResponse
 }
 var file_regret_proto_depIdxs = []int32{
 	0,  // 0: regret.v1.Record.meta:type_name -> regret.v1.RecordMeta
@@ -1632,27 +1808,30 @@ var file_regret_proto_depIdxs = []int32{
 	10, // 9: regret.v1.Operation.scan:type_name -> regret.v1.ScanOp
 	12, // 10: regret.v1.Operation.list:type_name -> regret.v1.ListOp
 	14, // 11: regret.v1.Operation.cas:type_name -> regret.v1.CasOp
-	3,  // 12: regret.v1.OpResult.put:type_name -> regret.v1.PutResult
-	5,  // 13: regret.v1.OpResult.get:type_name -> regret.v1.GetResult
-	7,  // 14: regret.v1.OpResult.delete:type_name -> regret.v1.DeleteResult
-	9,  // 15: regret.v1.OpResult.delete_range:type_name -> regret.v1.DeleteRangeResult
-	11, // 16: regret.v1.OpResult.scan:type_name -> regret.v1.ScanResult
-	13, // 17: regret.v1.OpResult.list:type_name -> regret.v1.ListResult
-	15, // 18: regret.v1.OpResult.cas:type_name -> regret.v1.CasResult
-	16, // 19: regret.v1.BatchRequest.ops:type_name -> regret.v1.Operation
-	17, // 20: regret.v1.BatchResponse.results:type_name -> regret.v1.OpResult
-	1,  // 21: regret.v1.ReadStateResponse.records:type_name -> regret.v1.Record
-	18, // 22: regret.v1.AdapterService.ExecuteBatch:input_type -> regret.v1.BatchRequest
-	20, // 23: regret.v1.AdapterService.ReadState:input_type -> regret.v1.ReadStateRequest
-	22, // 24: regret.v1.AdapterService.Cleanup:input_type -> regret.v1.CleanupRequest
-	19, // 25: regret.v1.AdapterService.ExecuteBatch:output_type -> regret.v1.BatchResponse
-	21, // 26: regret.v1.AdapterService.ReadState:output_type -> regret.v1.ReadStateResponse
-	23, // 27: regret.v1.AdapterService.Cleanup:output_type -> regret.v1.CleanupResponse
-	25, // [25:28] is the sub-list for method output_type
-	22, // [22:25] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	16, // 12: regret.v1.Operation.watch_start:type_name -> regret.v1.WatchStartOp
+	17, // 13: regret.v1.Operation.session_restart:type_name -> regret.v1.SessionRestartOp
+	18, // 14: regret.v1.Operation.get_notifications:type_name -> regret.v1.GetNotificationsOp
+	3,  // 15: regret.v1.OpResult.put:type_name -> regret.v1.PutResult
+	5,  // 16: regret.v1.OpResult.get:type_name -> regret.v1.GetResult
+	7,  // 17: regret.v1.OpResult.delete:type_name -> regret.v1.DeleteResult
+	9,  // 18: regret.v1.OpResult.delete_range:type_name -> regret.v1.DeleteRangeResult
+	11, // 19: regret.v1.OpResult.scan:type_name -> regret.v1.ScanResult
+	13, // 20: regret.v1.OpResult.list:type_name -> regret.v1.ListResult
+	15, // 21: regret.v1.OpResult.cas:type_name -> regret.v1.CasResult
+	19, // 22: regret.v1.BatchRequest.ops:type_name -> regret.v1.Operation
+	20, // 23: regret.v1.BatchResponse.results:type_name -> regret.v1.OpResult
+	1,  // 24: regret.v1.ReadStateResponse.records:type_name -> regret.v1.Record
+	21, // 25: regret.v1.AdapterService.ExecuteBatch:input_type -> regret.v1.BatchRequest
+	23, // 26: regret.v1.AdapterService.ReadState:input_type -> regret.v1.ReadStateRequest
+	25, // 27: regret.v1.AdapterService.Cleanup:input_type -> regret.v1.CleanupRequest
+	22, // 28: regret.v1.AdapterService.ExecuteBatch:output_type -> regret.v1.BatchResponse
+	24, // 29: regret.v1.AdapterService.ReadState:output_type -> regret.v1.ReadStateResponse
+	26, // 30: regret.v1.AdapterService.Cleanup:output_type -> regret.v1.CleanupResponse
+	28, // [28:31] is the sub-list for method output_type
+	25, // [25:28] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_regret_proto_init() }
@@ -1661,7 +1840,7 @@ func file_regret_proto_init() {
 		return
 	}
 	file_regret_proto_msgTypes[1].OneofWrappers = []any{}
-	file_regret_proto_msgTypes[16].OneofWrappers = []any{
+	file_regret_proto_msgTypes[19].OneofWrappers = []any{
 		(*Operation_Put)(nil),
 		(*Operation_Get)(nil),
 		(*Operation_Delete)(nil),
@@ -1669,8 +1848,11 @@ func file_regret_proto_init() {
 		(*Operation_Scan)(nil),
 		(*Operation_List)(nil),
 		(*Operation_Cas)(nil),
+		(*Operation_WatchStart)(nil),
+		(*Operation_SessionRestart)(nil),
+		(*Operation_GetNotifications)(nil),
 	}
-	file_regret_proto_msgTypes[17].OneofWrappers = []any{
+	file_regret_proto_msgTypes[20].OneofWrappers = []any{
 		(*OpResult_Put)(nil),
 		(*OpResult_Get)(nil),
 		(*OpResult_Delete)(nil),
@@ -1685,7 +1867,7 @@ func file_regret_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_regret_proto_rawDesc), len(file_regret_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   24,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

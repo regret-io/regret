@@ -16,18 +16,18 @@ import (
 
 // ExecutionConfig configures the executor.
 type ExecutionConfig struct {
-	BatchSize             int     `json:"batch_size"`
-	CheckpointIntervalSecs uint64 `json:"checkpoint_interval_secs"`
-	FailFast              bool    `json:"fail_fast"`
-	DurationSecs          *uint64 `json:"duration_secs,omitempty"`
+	BatchSize              int     `json:"batch_size"`
+	CheckpointIntervalSecs uint64  `json:"checkpoint_interval_secs"`
+	FailFast               bool    `json:"fail_fast"`
+	DurationSecs           *uint64 `json:"duration_secs,omitempty"`
 }
 
 // DefaultExecutionConfig returns the default execution config.
 func DefaultExecutionConfig() ExecutionConfig {
 	return ExecutionConfig{
-		BatchSize:             100,
+		BatchSize:              100,
 		CheckpointIntervalSecs: 600,
-		FailFast:              true,
+		FailFast:               true,
 	}
 }
 
@@ -65,18 +65,18 @@ type AdapterClient interface {
 
 // Executor is the main execution loop.
 type Executor struct {
-	HypothesisID  string
-	RunID         string
-	Config        ExecutionConfig
+	HypothesisID   string
+	RunID          string
+	Config         ExecutionConfig
 	GenerateParams *generator.GenerateParams
-	Reference     reference.ReferenceModel
-	Ctx           context.Context
-	Cancel        context.CancelFunc
-	Progress      *ProgressInfo
-	ProgressMu    sync.RWMutex
-	Files         *eventlog.EventLog
-	Sqlite        *database.SqliteStore
-	AdapterClient AdapterClient
+	Reference      reference.ReferenceModel
+	Ctx            context.Context
+	Cancel         context.CancelFunc
+	Progress       *ProgressInfo
+	ProgressMu     sync.RWMutex
+	Files          *eventlog.EventLog
+	Sqlite         *database.SqliteStore
+	AdapterClient  AdapterClient
 }
 
 // Run executes the main loop and returns the stop reason.
@@ -585,15 +585,6 @@ func (e *Executor) emitEvent(event Event) {
 func opTypeStr(op reference.Operation) string {
 	switch op.Kind.Type {
 	case reference.OpKindPut:
-		if op.Kind.Sequence {
-			return "sequence_put"
-		}
-		if op.Kind.Ephemeral {
-			return "ephemeral_put"
-		}
-		if op.Kind.IndexName != "" {
-			return "indexed_put"
-		}
 		return "put"
 	case reference.OpKindGet:
 		switch op.Kind.Comparison {
@@ -613,14 +604,8 @@ func opTypeStr(op reference.Operation) string {
 	case reference.OpKindDeleteRange:
 		return "delete_range"
 	case reference.OpKindList:
-		if op.Kind.IndexName != "" {
-			return "indexed_list"
-		}
 		return "list"
 	case reference.OpKindScan:
-		if op.Kind.IndexName != "" {
-			return "indexed_range_scan"
-		}
 		return "range_scan"
 	case reference.OpKindCas:
 		return "cas"
@@ -850,25 +835,6 @@ func parseOriginOpFromJSON(m map[string]interface{}) *reference.Operation {
 		op.Kind = reference.OpKind{Type: reference.OpKindScan, Start: getString("start"), End: getString("end"), IndexName: getString("index_name")}
 	case "cas":
 		op.Kind = reference.OpKind{Type: reference.OpKindCas, Key: getString("key"), ExpectedVersionID: getUint64("expected_version_id"), NewValue: getString("new_value")}
-	// Legacy op names
-	case "ephemeral_put":
-		op.Kind = reference.OpKind{Type: reference.OpKindPut, Key: getString("key"), Value: getString("value"), Ephemeral: true}
-	case "indexed_put":
-		op.Kind = reference.OpKind{Type: reference.OpKindPut, Key: getString("key"), Value: getString("value"), IndexName: getString("index_name"), IndexKey: getString("index_key")}
-	case "indexed_get":
-		indexKey := getString("index_key")
-		endKey := indexKey + "\x00"
-		op.Kind = reference.OpKind{Type: reference.OpKindList, IndexName: getString("index_name"), Start: indexKey, End: endKey}
-	case "indexed_list":
-		op.Kind = reference.OpKind{Type: reference.OpKindList, IndexName: getString("index_name"), Start: getString("start"), End: getString("end")}
-	case "indexed_range_scan":
-		op.Kind = reference.OpKind{Type: reference.OpKindScan, IndexName: getString("index_name"), Start: getString("start"), End: getString("end")}
-	case "sequence_put":
-		delta := getInt64("delta")
-		if delta == 0 {
-			delta = 1
-		}
-		op.Kind = reference.OpKind{Type: reference.OpKindPut, Value: getString("value"), Sequence: true, Prefix: getString("prefix"), Delta: delta}
 	case "watch_start":
 		op.Kind = reference.OpKind{Type: reference.OpKindWatchStart, Prefix: getString("prefix")}
 		// Also check legacy "key" field
