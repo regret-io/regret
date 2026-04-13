@@ -2,6 +2,7 @@ package endpoints
 
 import (
 	"net/http"
+	"net/http/pprof"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -47,6 +48,17 @@ func NewRouter(state *AppState, authPassword *string) http.Handler {
 	// Health
 	r.Get("/health", HealthHandler)
 	r.Get("/metrics", MetricsPlaceholderHandler)
+	r.Get("/debug/pprof/", pprof.Index)
+	r.Get("/debug/pprof/cmdline", pprof.Cmdline)
+	r.Get("/debug/pprof/profile", pprof.Profile)
+	r.Get("/debug/pprof/symbol", pprof.Symbol)
+	r.Get("/debug/pprof/trace", pprof.Trace)
+	r.Get("/debug/pprof/allocs", pprof.Handler("allocs").ServeHTTP)
+	r.Get("/debug/pprof/block", pprof.Handler("block").ServeHTTP)
+	r.Get("/debug/pprof/goroutine", pprof.Handler("goroutine").ServeHTTP)
+	r.Get("/debug/pprof/heap", pprof.Handler("heap").ServeHTTP)
+	r.Get("/debug/pprof/mutex", pprof.Handler("mutex").ServeHTTP)
+	r.Get("/debug/pprof/threadcreate", pprof.Handler("threadcreate").ServeHTTP)
 
 	// Hypothesis CRUD
 	h := &hypothesisHandlers{state: state}

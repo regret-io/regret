@@ -217,20 +217,27 @@ func (m *HypothesisManager) StartRun(
 // StopRun stops the current run.
 func (m *HypothesisManager) StopRun() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.activeRun == nil {
+		m.mu.Unlock()
 		return nil
 	}
+	active := m.activeRun
 
 	slog.Info("stopping run",
 		slog.String("hypothesis_id", m.HypothesisID),
-		slog.String("run_id", m.activeRun.RunID),
+		slog.String("run_id", active.RunID),
 	)
 
-	m.activeRun.cancel()
-	<-m.activeRun.done
-	m.activeRun = nil
+	active.cancel()
+	m.mu.Unlock()
+
+	<-active.done
+
+	m.mu.Lock()
+	if m.activeRun == active {
+		m.activeRun = nil
+	}
+	m.mu.Unlock()
 	return nil
 }
 
