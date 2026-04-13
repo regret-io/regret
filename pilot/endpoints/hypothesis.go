@@ -378,9 +378,10 @@ func (h *hypothesisHandlers) GetEvents(w http.ResponseWriter, r *http.Request) {
 	runID := queryPtr(q, "run_id")
 	eventType := queryPtr(q, "type")
 	since := queryPtr(q, "since")
+	until := queryPtr(q, "until")
 	last := queryIntPtr(q, "last")
 
-	events, err := h.state.Files.ReadMergedEvents(id, runID, eventType, since, last)
+	events, err := h.state.Files.ReadMergedEvents(id, runID, eventType, since, until, last)
 	if err != nil {
 		WriteError(w, InternalError(err))
 		return

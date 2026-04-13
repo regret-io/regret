@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/regret-io/regret/pilot-go/database"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -29,6 +30,7 @@ type EventLog interface {
 // Implementations must handle creation and status updates.
 type SqliteStore interface {
 	ChaosCreateInjection(ctx context.Context, id, scenarioID, scenarioName string) error
+	GetChaosInjection(ctx context.Context, id string) (*database.ChaosInjectionRecord, error)
 	UpdateChaosInjectionStatus(ctx context.Context, id, status string, errMsg *string) error
 }
 
@@ -114,10 +116,26 @@ func (r *ChaosRegistry) StartInjection(ctx context.Context, scenario ChaosScenar
 
 // StopInjection cancels an active chaos injection and waits for it to finish.
 func (r *ChaosRegistry) StopInjection(ctx context.Context, injectionID string) error {
+	slog.Info("stop injection requested", slog.String("injection_id", injectionID))
 	r.mu.Lock()
 	handle, ok := r.injections[injectionID]
 	if !ok {
 		r.mu.Unlock()
+		slog.Info("stop injection falling back to persisted record", slog.String("injection_id", injectionID))
+		record, err := r.sqlite.GetChaosInjection(ctx, injectionID)
+		if err != nil {
+			return fmt.Errorf("get injection: %w", err)
+		}
+		if record == nil {
+			slog.Info("stop injection record not found", slog.String("injection_id", injectionID))
+			return nil
+		}
+		event := NewInjectionStoppedEvent(injectionID, record.ScenarioName, "manual")
+		r.emitChaosEvent(&event)
+		if err := r.sqlite.UpdateChaosInjectionStatus(ctx, injectionID, "stopped", nil); err != nil {
+			return fmt.Errorf("update injection status: %w", err)
+		}
+		slog.Info("stop injection persisted status updated", slog.String("injection_id", injectionID))
 		return nil
 	}
 	delete(r.injections, injectionID)
@@ -133,6 +151,7 @@ func (r *ChaosRegistry) StopInjection(ctx context.Context, injectionID string) e
 	if err := r.sqlite.UpdateChaosInjectionStatus(ctx, injectionID, "stopped", nil); err != nil {
 		return fmt.Errorf("update injection status: %w", err)
 	}
+	slog.Info("stop injection active handle stopped", slog.String("injection_id", injectionID))
 	return nil
 }
 
@@ -275,10 +294,27 @@ func runActionLoop(
 		if err != nil {
 			return err
 		}
-		for {
+
+		// Fire once immediately when the injection starts, then continue on the interval.
+		executeAndLog(ctx, injectionID, scenarioName, clientset, namespace, action, files)
+
+		if action.Duration != nil {
+			dur, err := ParseDuration(*action.Duration)
+			if err != nil {
+				return err
+			}
 			select {
 			case <-ctx.Done():
 				recoverIfNeeded(clientset, namespace, action, injectionID, scenarioName, files)
+				return nil
+			case <-time.After(dur):
+			}
+			recoverIfNeeded(clientset, namespace, action, injectionID, scenarioName, files)
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
 				return nil
 			case <-time.After(interval):
 			}

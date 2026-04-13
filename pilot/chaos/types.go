@@ -12,7 +12,7 @@ type ChaosScenario struct {
 type ChaosAction struct {
 	// Action type: pod_kill, pod_restart, network_partition, network_delay,
 	// network_loss, rolling_update, custom, upgrade_test.
-	ActionType string `json:"type"`
+	ActionType string `json:"action_type"`
 
 	// Label selector for target pods.
 	Selector LabelSelector `json:"selector"`

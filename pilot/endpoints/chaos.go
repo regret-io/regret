@@ -4,6 +4,7 @@ import (
 	"github.com/regret-io/regret/pilot-go/ext"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -137,6 +138,11 @@ func (c *chaosHandlers) StartInjection(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, InternalError(fmt.Errorf("invalid actions JSON: %w", err)))
 		return
 	}
+	slog.Info("decoded chaos actions",
+		slog.String("scenario_id", scenarioID),
+		slog.String("raw_actions", record.Actions),
+		slog.Any("actions", actions),
+	)
 
 	// Apply overrides if provided
 	var req InjectRequest
@@ -254,7 +260,7 @@ func (c *chaosHandlers) DeleteInjection(w http.ResponseWriter, r *http.Request) 
 
 // ChaosEvents handles GET /api/chaos/events.
 func (c *chaosHandlers) ChaosEvents(w http.ResponseWriter, r *http.Request) {
-	events, err := c.state.Files.ReadChaosEvents(nil)
+	events, err := c.state.Files.ReadChaosEvents(nil, nil)
 	if err != nil {
 		WriteError(w, InternalError(err))
 		return

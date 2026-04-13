@@ -66,7 +66,7 @@ func (f *EventLog) AppendEvent(id, eventJSON string) error {
 	return err
 }
 
-func (f *EventLog) ReadEvents(id string, runID, eventType, since *string, last *int) ([]map[string]any, error) {
+func (f *EventLog) ReadEvents(id string, runID, eventType, since, until *string, last *int) ([]map[string]any, error) {
 	fp := f.eventsPath(id)
 
 	var lines []string
@@ -83,16 +83,16 @@ func (f *EventLog) ReadEvents(id string, runID, eventType, since *string, last *
 		return nil, fmt.Errorf("read events: %w", err)
 	}
 
-	return filterEvents(lines, runID, eventType, since), nil
+	return filterEvents(lines, runID, eventType, since, until), nil
 }
 
-func (f *EventLog) ReadMergedEvents(id string, runID, eventType, since *string, last *int) ([]map[string]any, error) {
-	hyp, err := f.ReadEvents(id, runID, eventType, since, last)
+func (f *EventLog) ReadMergedEvents(id string, runID, eventType, since, until *string, last *int) ([]map[string]any, error) {
+	hyp, err := f.ReadEvents(id, runID, eventType, since, until, last)
 	if err != nil {
 		return nil, err
 	}
 
-	chaos, err := f.ReadChaosEvents(since)
+	chaos, err := f.ReadChaosEvents(since, until)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func (f *EventLog) AppendChaosEvent(eventJSON string) error {
 	return err
 }
 
-func (f *EventLog) ReadChaosEvents(since *string) ([]map[string]any, error) {
+func (f *EventLog) ReadChaosEvents(since, until *string) ([]map[string]any, error) {
 	fp := f.chaosEventsPath()
 	lines, err := readAllLines(fp)
 	if err != nil {
@@ -140,7 +140,7 @@ func (f *EventLog) ReadChaosEvents(since *string) ([]map[string]any, error) {
 		}
 		return nil, fmt.Errorf("read chaos events: %w", err)
 	}
-	return filterEvents(lines, nil, nil, since), nil
+	return filterEvents(lines, nil, nil, since, until), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +310,7 @@ func readAllLines(path string) ([]string, error) {
 	return lines, nil
 }
 
-func filterEvents(lines []string, runID, eventType, since *string) []map[string]any {
+func filterEvents(lines []string, runID, eventType, since, until *string) []map[string]any {
 	var out []map[string]any
 	for _, line := range lines {
 		if line == "" {
@@ -332,6 +332,11 @@ func filterEvents(lines []string, runID, eventType, since *string) []map[string]
 		}
 		if since != nil {
 			if ts, ok := obj["timestamp"].(string); !ok || ts < *since {
+				continue
+			}
+		}
+		if until != nil {
+			if ts, ok := obj["timestamp"].(string); !ok || ts > *until {
 				continue
 			}
 		}
