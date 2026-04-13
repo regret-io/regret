@@ -37,11 +37,12 @@ type Hypothesis struct {
 }
 
 type AdapterRecord struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Image     string `json:"image"`
-	Env       string `json:"env"`
-	CreatedAt string `json:"created_at"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Image      string `json:"image"`
+	Env        string `json:"env"`
+	ConfigYAML string `json:"config_yaml"`
+	CreatedAt  string `json:"created_at"`
 }
 
 type GeneratorRecord struct {
@@ -156,6 +157,9 @@ func (s *SqliteStore) runMigrations() error {
 			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
 		}
 		if _, err := s.db.Exec(string(data)); err != nil {
+			if strings.Contains(err.Error(), "duplicate column name: config_yaml") {
+				continue
+			}
 			return fmt.Errorf("exec migration %s: %w", entry.Name(), err)
 		}
 	}
@@ -303,10 +307,10 @@ func scanHypothesisRows(rows *sql.Rows) (*Hypothesis, error) {
 // Adapter CRUD
 // ---------------------------------------------------------------------------
 
-func (s *SqliteStore) CreateAdapter(ctx context.Context, id, name, image, envJSON string) (*AdapterRecord, error) {
+func (s *SqliteStore) CreateAdapter(ctx context.Context, id, name, image, envJSON, configYAML string) (*AdapterRecord, error) {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO adapters (id, name, image, env) VALUES (?, ?, ?, ?)`,
-		id, name, image, envJSON,
+		`INSERT INTO adapters (id, name, image, env, config_yaml) VALUES (?, ?, ?, ?, ?)`,
+		id, name, image, envJSON, configYAML,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert adapter: %w", err)
@@ -317,8 +321,8 @@ func (s *SqliteStore) CreateAdapter(ctx context.Context, id, name, image, envJSO
 func (s *SqliteStore) GetAdapter(ctx context.Context, id string) (*AdapterRecord, error) {
 	var a AdapterRecord
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, image, env, created_at FROM adapters WHERE id = ?`, id).
-		Scan(&a.ID, &a.Name, &a.Image, &a.Env, &a.CreatedAt)
+		`SELECT id, name, image, env, config_yaml, created_at FROM adapters WHERE id = ?`, id).
+		Scan(&a.ID, &a.Name, &a.Image, &a.Env, &a.ConfigYAML, &a.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("adapter not found")
@@ -331,8 +335,8 @@ func (s *SqliteStore) GetAdapter(ctx context.Context, id string) (*AdapterRecord
 func (s *SqliteStore) GetAdapterByName(ctx context.Context, name string) (*AdapterRecord, error) {
 	var a AdapterRecord
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, image, env, created_at FROM adapters WHERE name = ?`, name).
-		Scan(&a.ID, &a.Name, &a.Image, &a.Env, &a.CreatedAt)
+		`SELECT id, name, image, env, config_yaml, created_at FROM adapters WHERE name = ?`, name).
+		Scan(&a.ID, &a.Name, &a.Image, &a.Env, &a.ConfigYAML, &a.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("adapter not found")
@@ -344,7 +348,7 @@ func (s *SqliteStore) GetAdapterByName(ctx context.Context, name string) (*Adapt
 
 func (s *SqliteStore) ListAdapters(ctx context.Context) ([]AdapterRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, image, env, created_at FROM adapters ORDER BY created_at DESC`)
+		`SELECT id, name, image, env, config_yaml, created_at FROM adapters ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list adapters: %w", err)
 	}
@@ -353,7 +357,7 @@ func (s *SqliteStore) ListAdapters(ctx context.Context) ([]AdapterRecord, error)
 	var out []AdapterRecord
 	for rows.Next() {
 		var a AdapterRecord
-		if err := rows.Scan(&a.ID, &a.Name, &a.Image, &a.Env, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Image, &a.Env, &a.ConfigYAML, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan adapter: %w", err)
 		}
 		out = append(out, a)

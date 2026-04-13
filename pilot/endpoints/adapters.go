@@ -1,15 +1,18 @@
 package endpoints
 
 import (
-	"github.com/regret-io/regret/pilot-go/ext"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/regret-io/regret/pilot-go/database"
+	"github.com/regret-io/regret/pilot-go/ext"
 )
 
 type adapterHandlers struct {
@@ -26,6 +29,13 @@ func (a *adapterHandlers) Create(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	cfg, configYAML, err := adapterConfigFromRequest(&req)
+	if err != nil {
+		WriteError(w, BadRequest(err.Error()))
+		return
+	}
+	envJSON, _ := json.Marshal(adapterEnvJSONMap(cfg))
+
 	// Check name uniqueness
 	existing, _ := a.state.Sqlite.GetAdapterByName(ctx, req.Name)
 	if existing != nil {
@@ -34,10 +44,9 @@ func (a *adapterHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := fmt.Sprintf("adp-%d", ext.NowUnixMilli())
-	envJSON, _ := json.Marshal(req.Env)
 
 	// Step 1: Save to DB
-	adapter, err := a.state.Sqlite.CreateAdapter(ctx, id, req.Name, req.Image, string(envJSON))
+	adapter, err := a.state.Sqlite.CreateAdapter(ctx, id, req.Name, cfg.Image, string(envJSON), configYAML)
 	if err != nil {
 		WriteError(w, InternalError(err))
 		return
@@ -45,7 +54,7 @@ func (a *adapterHandlers) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Step 2: Deploy Pod + Service to K8s (if kube client is available)
 	if a.state.KubeClient != nil {
-		if err := a.deployAdapterToK8s(req, id); err != nil {
+		if err := a.deployAdapterToK8s(req.Name, id, cfg); err != nil {
 			// Rollback DB record
 			slog.Warn("failed to deploy adapter, rolling back", slog.Any("error", err))
 			_, _ = a.state.Sqlite.DeleteAdapter(ctx, id)
@@ -112,33 +121,29 @@ func (a *adapterHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// deployAdapterToK8s deploys the adapter Pod + Service.
-// This is a placeholder that will be wired to client-go later.
-func (a *adapterHandlers) deployAdapterToK8s(req CreateAdapterRequest, id string) error {
-	// Pod spec:
-	// - name: adapter-{req.Name}
-	// - namespace: a.state.Namespace
-	// - container: "adapter" with image req.Image
-	// - ports: 9090, 9091
-	// - env: req.Env
-	// - imagePullPolicy: Always
-	//
-	// Service spec:
-	// - name: adapter-{req.Name}
-	// - ClusterIP
-	// - ports: 9090, 9091
-	//
-	// Labels: app=adapter-{req.Name}, regret.io/adapter={req.Name}, regret.io/adapter-id={id}
+func (a *adapterHandlers) deployAdapterToK8s(adapterName, id string, cfg *AdapterConfig) error {
+	service := buildAdapterService(a.state.Namespace, id, adapterName)
+	deployment := buildAdapterDeployment(a.state.Namespace, id, adapterName, cfg)
 
-	// TODO: implement with client-go when KubeClient is wired
+	if _, err := a.state.KubeClient.CoreV1().Services(a.state.Namespace).Create(context.Background(), service, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	if _, err := a.state.KubeClient.AppsV1().Deployments(a.state.Namespace).Create(context.Background(), deployment, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		if _, err := a.state.KubeClient.AppsV1().Deployments(a.state.Namespace).Update(context.Background(), deployment, metav1.UpdateOptions{}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 // deleteAdapterFromK8s removes the adapter Pod + Service.
 func (a *adapterHandlers) deleteAdapterFromK8s(name string) {
-	// podName := fmt.Sprintf("adapter-%s", name)
-	// Delete service, then pod (best-effort)
-	// TODO: implement with client-go when KubeClient is wired
+	ctx := context.Background()
+	_ = a.state.KubeClient.AppsV1().Deployments(a.state.Namespace).Delete(ctx, adapterWorkloadName(name), metav1.DeleteOptions{})
+	_ = a.state.KubeClient.CoreV1().Services(a.state.Namespace).Delete(ctx, adapterWorkloadName(name), metav1.DeleteOptions{})
 }
 
 func toAdapterResponse(a *database.AdapterRecord) AdapterResponse {
@@ -146,11 +151,20 @@ func toAdapterResponse(a *database.AdapterRecord) AdapterResponse {
 	if err := json.Unmarshal([]byte(a.Env), &env); err != nil {
 		env = map[string]interface{}{}
 	}
+	configYAML := a.ConfigYAML
+	if configYAML == "" {
+		envMap := map[string]string{}
+		_ = json.Unmarshal([]byte(a.Env), &envMap)
+		if generated, err := legacyAdapterConfigYAML(a.Image, envMap); err == nil {
+			configYAML = generated
+		}
+	}
 	return AdapterResponse{
-		ID:        a.ID,
-		Name:      a.Name,
-		Image:     a.Image,
-		Env:       env,
-		CreatedAt: a.CreatedAt,
+		ID:         a.ID,
+		Name:       a.Name,
+		ConfigYAML: configYAML,
+		Image:      a.Image,
+		Env:        env,
+		CreatedAt:  a.CreatedAt,
 	}
 }

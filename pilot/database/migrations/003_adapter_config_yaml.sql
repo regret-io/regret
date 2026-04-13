@@ -1,0 +1,1 @@
+ALTER TABLE adapters ADD COLUMN config_yaml TEXT NOT NULL DEFAULT '';

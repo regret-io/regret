@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -55,6 +56,8 @@ const (
 	StopStopped          StopReason = "stopped"
 	StopError            StopReason = "error"
 )
+
+const batchOperationTimeout = 5 * time.Minute
 
 // AdapterClient is the interface the executor uses to talk to adapters.
 type AdapterClient interface {
@@ -176,7 +179,7 @@ func (e *Executor) runInner() StopReason {
 				Prefix: prefix,
 			},
 		}
-		results, err := e.AdapterClient.ExecuteBatch(e.Ctx, "precondition", []reference.Operation{watchOp})
+		results, err := e.executeBatchWithTimeout("precondition", []reference.Operation{watchOp})
 		if err != nil {
 			slog.Warn("watch_start precondition failed", slog.Any("error", err))
 		} else {
@@ -252,8 +255,12 @@ func (e *Executor) runInner() StopReason {
 				var results []reference.AdapterOpResult
 				for attempt := uint32(1); attempt <= 3; attempt++ {
 					var err error
-					results, err = e.AdapterClient.ExecuteBatch(e.Ctx, batchID, batch)
+					results, err = e.executeBatchWithTimeout(batchID, batch)
 					if err == nil {
+						break
+					}
+					if errors.Is(err, context.DeadlineExceeded) {
+						lastErr = fmt.Sprintf("batch timed out after %s", batchOperationTimeout)
 						break
 					}
 					lastErr = err.Error()
@@ -389,6 +396,23 @@ func (e *Executor) runInner() StopReason {
 	e.runCheckpoint(checkpointCounter)
 
 	return StopCompleted
+}
+
+func (e *Executor) executeBatchWithTimeout(batchID string, ops []reference.Operation) ([]reference.AdapterOpResult, error) {
+	if e.AdapterClient == nil {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(e.Ctx, batchOperationTimeout)
+	defer cancel()
+
+	results, err := e.AdapterClient.ExecuteBatch(ctx, batchID, ops)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, context.DeadlineExceeded
+		}
+		return nil, err
+	}
+	return results, nil
 }
 
 func (e *Executor) splitIntoBatches(ops []reference.Operation) [][]reference.Operation {

@@ -2,6 +2,7 @@ package chaos
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -17,6 +18,15 @@ import (
 // ExecuteAction runs a single chaos action against the cluster and returns the
 // names of pods that were targeted.
 func ExecuteAction(ctx context.Context, clientset kubernetes.Interface, namespace string, action *ChaosAction) ([]string, error) {
+	switch action.ActionType {
+	case "rolling_update":
+		return nil, rollingUpdate(ctx, clientset, namespace, action)
+	case "custom":
+		return nil, customAction(action)
+	case "custom_patch":
+		return nil, customPatch(ctx, namespace, action)
+	}
+
 	targetPods, err := resolveTargets(ctx, clientset, namespace, action)
 	if err != nil {
 		return nil, fmt.Errorf("resolve targets: %w", err)
@@ -42,10 +52,6 @@ func ExecuteAction(ctx context.Context, clientset kubernetes.Interface, namespac
 		err = networkDelay(namespace, targetPods, action)
 	case "network_loss":
 		err = networkLoss(namespace, targetPods, action)
-	case "rolling_update":
-		err = rollingUpdate(ctx, clientset, namespace, action)
-	case "custom":
-		err = customAction(action)
 	default:
 		return nil, fmt.Errorf("unknown chaos action type: %s", action.ActionType)
 	}
@@ -295,6 +301,35 @@ func customAction(action *ChaosAction) error {
 	return nil
 }
 
+func customPatch(ctx context.Context, namespace string, action *ChaosAction) error {
+	resourceName, _ := paramString(action.Params, "resource")
+	if resourceName == "" {
+		return fmt.Errorf("custom_patch requires 'resource' in params")
+	}
+
+	patchType := "merge"
+	if v, ok := paramString(action.Params, "patch_type"); ok && v != "" {
+		patchType = v
+	}
+
+	patchBytes, err := patchBytesFromParams(action.Params)
+	if err != nil {
+		return err
+	}
+
+	args := []string{"patch", resourceName, "-n", namespace, "--type", patchType, "--patch", string(patchBytes)}
+	slog.Info("executing custom patch",
+		slog.String("resource", resourceName),
+		slog.String("patch_type", patchType),
+	)
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("custom patch failed: %s", string(output))
+	}
+	return nil
+}
+
 // execInPod executes a command inside a pod via kubectl exec.
 func execInPod(namespace, podName string, command ...string) error {
 	args := []string{"exec", "-n", namespace, podName, "--"}
@@ -350,4 +385,19 @@ func paramUint64(params map[string]any, key string) (uint64, bool) {
 		return 0, false
 	}
 	return uint64(f), true
+}
+
+func patchBytesFromParams(params map[string]any) ([]byte, error) {
+	v, ok := params["patch"]
+	if !ok {
+		return nil, fmt.Errorf("custom_patch requires 'patch' in params")
+	}
+	if s, ok := v.(string); ok {
+		return []byte(s), nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal patch: %w", err)
+	}
+	return b, nil
 }

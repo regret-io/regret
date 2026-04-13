@@ -11,6 +11,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	adapterPkg "github.com/regret-io/regret/pilot-go/adapter"
 	"github.com/regret-io/regret/pilot-go/chaos"
@@ -71,13 +73,15 @@ func New(dataDir string, httpPort uint16, namespace string, authPassword *string
 	managers := engine.NewManagerRegistry(shared)
 
 	chaosRegistry := chaos.NewChaosRegistry(events, sqlite, &chaosManagerAdapter{managers: managers})
+	kubeClient := buildKubeClient()
 
 	state := &endpoints.AppState{
-		Sqlite:    sqlite,
-		Files:     events,
-		Managers:  managers,
-		Chaos:     chaosRegistry,
-		Namespace: namespace,
+		Sqlite:     sqlite,
+		Files:      events,
+		Managers:   managers,
+		Chaos:      chaosRegistry,
+		KubeClient: kubeClient,
+		Namespace:  namespace,
 	}
 
 	router := endpoints.NewRouter(state, authPassword)
@@ -97,6 +101,20 @@ func New(dataDir string, httpPort uint16, namespace string, authPassword *string
 	}, nil
 }
 
+func buildKubeClient() kubernetes.Interface {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		slog.Warn("kubernetes client unavailable", "error", err)
+		return nil
+	}
+	client, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		slog.Warn("kubernetes client init failed", "error", err)
+		return nil
+	}
+	return client
+}
+
 // Start seeds data, resumes running hypotheses, and starts the HTTP server.
 // It blocks until ctx is cancelled, then shuts down gracefully.
 func (p *Pilot) Start(ctx context.Context) error {
@@ -110,6 +128,9 @@ func (p *Pilot) Start(ctx context.Context) error {
 	// Load and resume hypotheses
 	if err := p.loadHypotheses(ctx); err != nil {
 		return fmt.Errorf("load hypotheses: %w", err)
+	}
+	if err := p.resumeChaosInjections(ctx); err != nil {
+		return fmt.Errorf("resume chaos injections: %w", err)
 	}
 
 	// Start HTTP server
@@ -274,4 +295,52 @@ func (p *Pilot) resumeHypothesis(ctx context.Context, h *database.Hypothesis) {
 	} else {
 		slog.Info("hypothesis resumed", "id", h.ID, "run_id", runID)
 	}
+}
+
+func (p *Pilot) resumeChaosInjections(ctx context.Context) error {
+	injections, err := p.sqlite.ListChaosInjections(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, inj := range injections {
+		if inj.Status != "running" {
+			continue
+		}
+
+		record, err := p.sqlite.GetChaosScenario(ctx, inj.ScenarioID)
+		if err != nil {
+			slog.Error("failed to load scenario for running chaos injection",
+				slog.String("injection_id", inj.ID),
+				slog.String("scenario_id", inj.ScenarioID),
+				slog.Any("error", err),
+			)
+			continue
+		}
+
+		var actions []chaos.ChaosAction
+		if err := json.Unmarshal([]byte(record.Actions), &actions); err != nil {
+			slog.Error("failed to decode actions for running chaos injection",
+				slog.String("injection_id", inj.ID),
+				slog.String("scenario_id", inj.ScenarioID),
+				slog.Any("error", err),
+			)
+			continue
+		}
+
+		p.chaos.ResumeInjection(inj.ID, chaos.ChaosScenario{
+			ID:        record.ID,
+			Name:      record.Name,
+			Namespace: record.Namespace,
+			Actions:   actions,
+		})
+
+		slog.Info("chaos injection resumed",
+			slog.String("injection_id", inj.ID),
+			slog.String("scenario_id", inj.ScenarioID),
+			slog.String("scenario_name", inj.ScenarioName),
+		)
+	}
+
+	return nil
 }

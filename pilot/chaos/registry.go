@@ -81,37 +81,15 @@ func (r *ChaosRegistry) StartInjection(ctx context.Context, scenario ChaosScenar
 		return "", fmt.Errorf("create chaos injection record: %w", err)
 	}
 
-	// Emit start event.
-	event := NewInjectionStartedEvent(injectionID, scenario.Name)
-	r.emitChaosEvent(&event)
-
-	// Create a cancellable context for the injection goroutine.
-	injCtx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-		if err := runInjection(injCtx, injectionID, &scenario, r.files, r.sqlite, r.managers); err != nil {
-			slog.Error("chaos injection failed",
-				slog.String("injection_id", injectionID),
-				slog.Any("error", err),
-			)
-			errEvent := NewChaosErrorEvent(injectionID, scenario.Name, "injection", err.Error())
-			r.files.AppendChaosEvent(errEvent.ToJSON()) //nolint:errcheck
-			errMsg := err.Error()
-			r.sqlite.UpdateChaosInjectionStatus(context.Background(), injectionID, "error", &errMsg) //nolint:errcheck
-		}
-	}()
-
-	r.mu.Lock()
-	r.injections[injectionID] = &chaosInjectionHandle{
-		scenarioName: scenario.Name,
-		cancel:       cancel,
-		done:         done,
-	}
-	r.mu.Unlock()
+	r.startInjectionLoop(injectionID, scenario, true)
 
 	return injectionID, nil
+}
+
+// ResumeInjection restarts the in-memory action loop for an existing persisted
+// injection that is still marked as running.
+func (r *ChaosRegistry) ResumeInjection(injectionID string, scenario ChaosScenario) {
+	r.startInjectionLoop(injectionID, scenario, false)
 }
 
 // StopInjection cancels an active chaos injection and waits for it to finish.
@@ -178,6 +156,38 @@ func (r *ChaosRegistry) emitChaosEvent(event *ChaosEvent) {
 	if err := r.files.AppendChaosEvent(event.ToJSON()); err != nil {
 		slog.Error("failed to write chaos event", slog.Any("error", err))
 	}
+}
+
+func (r *ChaosRegistry) startInjectionLoop(injectionID string, scenario ChaosScenario, emitStart bool) {
+	if emitStart {
+		event := NewInjectionStartedEvent(injectionID, scenario.Name)
+		r.emitChaosEvent(&event)
+	}
+
+	injCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		if err := runInjection(injCtx, injectionID, &scenario, r.files, r.sqlite, r.managers); err != nil {
+			slog.Error("chaos injection failed",
+				slog.String("injection_id", injectionID),
+				slog.Any("error", err),
+			)
+			errEvent := NewChaosErrorEvent(injectionID, scenario.Name, "injection", err.Error())
+			r.files.AppendChaosEvent(errEvent.ToJSON()) //nolint:errcheck
+			errMsg := err.Error()
+			r.sqlite.UpdateChaosInjectionStatus(context.Background(), injectionID, "error", &errMsg) //nolint:errcheck
+		}
+	}()
+
+	r.mu.Lock()
+	r.injections[injectionID] = &chaosInjectionHandle{
+		scenarioName: scenario.Name,
+		cancel:       cancel,
+		done:         done,
+	}
+	r.mu.Unlock()
 }
 
 // ---------------------------------------------------------------------------

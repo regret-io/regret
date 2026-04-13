@@ -92,18 +92,20 @@ type BundleQuery struct {
 
 // CreateAdapterRequest is the request body for creating an adapter.
 type CreateAdapterRequest struct {
-	Name  string            `json:"name"`
-	Image string            `json:"image"`
-	Env   map[string]string `json:"env"`
+	Name       string            `json:"name"`
+	ConfigYAML string            `json:"config_yaml"`
+	Image      string            `json:"image"`
+	Env        map[string]string `json:"env"`
 }
 
 // AdapterResponse is the response for a single adapter.
 type AdapterResponse struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
-	Image     string      `json:"image"`
-	Env       interface{} `json:"env"`
-	CreatedAt string      `json:"created_at"`
+	ID         string      `json:"id"`
+	Name       string      `json:"name"`
+	ConfigYAML string      `json:"config_yaml"`
+	Image      string      `json:"image"`
+	Env        interface{} `json:"env"`
+	CreatedAt  string      `json:"created_at"`
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +199,6 @@ type MetricGroup struct {
 
 // MetricSeries is a single metric series with labels and time-ordered points.
 type MetricSeries struct {
-	Labels interface{} `json:"labels"`
+	Labels interface{}  `json:"labels"`
 	Points [][2]float64 `json:"points"`
 }

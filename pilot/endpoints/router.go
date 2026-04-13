@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/regret-io/regret/pilot-go/chaos"
 	"github.com/regret-io/regret/pilot-go/database"
@@ -20,7 +21,7 @@ type AppState struct {
 	Files      *eventlog.EventLog
 	Managers   *engine.ManagerRegistry
 	Chaos      *chaos.ChaosRegistry
-	KubeClient interface{} // placeholder for client-go, wire later
+	KubeClient kubernetes.Interface
 	Namespace  string
 }
 
